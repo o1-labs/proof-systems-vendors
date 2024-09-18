@@ -13,7 +13,7 @@ use crate::{
         regex::{Cache, RegexInfo},
         reverse_inner, wrappers,
     },
-    nfa::thompson::{self, NFA},
+    nfa::thompson::{self, WhichCaptures, NFA},
     util::{
         captures::{Captures, GroupInfo},
         look::LookMatcher,
@@ -57,6 +57,8 @@ pub(super) trait Strategy:
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch>;
+
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool;
 
     fn search_slots(
         &self,
@@ -351,6 +353,7 @@ impl Pre<()> {
 // strategy when len(patterns)==1 if the number of literals is large. In that
 // case, literal extraction gives up and will return an infinite set.)
 impl<P: PrefilterI> Strategy for Pre<P> {
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn group_info(&self) -> &GroupInfo {
         &self.group_info
     }
@@ -376,6 +379,7 @@ impl<P: PrefilterI> Strategy for Pre<P> {
         self.pre.memory_usage()
     }
 
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, _cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         if input.is_done() {
             return None;
@@ -391,6 +395,7 @@ impl<P: PrefilterI> Strategy for Pre<P> {
             .map(|sp| Match::new(PatternID::ZERO, sp))
     }
 
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_half(
         &self,
         cache: &mut Cache,
@@ -399,6 +404,12 @@ impl<P: PrefilterI> Strategy for Pre<P> {
         self.search(cache, input).map(|m| HalfMatch::new(m.pattern(), m.end()))
     }
 
+    #[cfg_attr(feature = "perf-inline", inline(always))]
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        self.search(cache, input).is_some()
+    }
+
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
@@ -415,6 +426,7 @@ impl<P: PrefilterI> Strategy for Pre<P> {
         Some(m.pattern())
     }
 
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
@@ -452,7 +464,7 @@ impl Core {
             .utf8(info.config().get_utf8_empty())
             .nfa_size_limit(info.config().get_nfa_size_limit())
             .shrink(false)
-            .captures(true)
+            .which_captures(info.config().get_which_captures())
             .look_matcher(lookm);
         let nfa = thompson::Compiler::new()
             .configure(thompson_config.clone())
@@ -499,7 +511,10 @@ impl Core {
                     // useful with capturing groups in reverse. And of course,
                     // the lazy DFA ignores capturing groups in all cases.
                     .configure(
-                        thompson_config.clone().captures(false).reverse(true),
+                        thompson_config
+                            .clone()
+                            .which_captures(WhichCaptures::None)
+                            .reverse(true),
                     )
                     .build_many_from_hir(hirs)
                     .map_err(BuildError::nfa)?;
@@ -620,6 +635,29 @@ impl Core {
         }
     }
 
+    fn is_match_nofail(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        if let Some(ref e) = self.onepass.get(input) {
+            trace!(
+                "using OnePass for is-match search at {:?}",
+                input.get_span()
+            );
+            e.search_slots(&mut cache.onepass, input, &mut []).is_some()
+        } else if let Some(ref e) = self.backtrack.get(input) {
+            trace!(
+                "using BoundedBacktracker for is-match search at {:?}",
+                input.get_span()
+            );
+            e.is_match(&mut cache.backtrack, input)
+        } else {
+            trace!(
+                "using PikeVM for is-match search at {:?}",
+                input.get_span()
+            );
+            let e = self.pikevm.get();
+            e.is_match(&mut cache.pikevm, input)
+        }
+    }
+
     fn is_capture_search_needed(&self, slots_len: usize) -> bool {
         slots_len > self.nfa.group_info().implicit_slot_len()
     }
@@ -700,7 +738,7 @@ impl Strategy for Core {
         // The main difference with 'search' is that if we're using a DFA, we
         // can use a single forward scan without needing to run the reverse
         // DFA.
-        return if let Some(e) = self.dfa.get(input) {
+        if let Some(e) = self.dfa.get(input) {
             trace!("using full DFA for half search at {:?}", input.get_span());
             match e.try_search_half_fwd(input) {
                 Ok(x) => x,
@@ -720,7 +758,38 @@ impl Strategy for Core {
             }
         } else {
             self.search_half_nofail(cache, input)
-        };
+        }
+    }
+
+    #[cfg_attr(feature = "perf-inline", inline(always))]
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        if let Some(e) = self.dfa.get(input) {
+            trace!(
+                "using full DFA for is-match search at {:?}",
+                input.get_span()
+            );
+            match e.try_search_half_fwd(input) {
+                Ok(x) => x.is_some(),
+                Err(_err) => {
+                    trace!("full DFA half search failed: {}", _err);
+                    self.is_match_nofail(cache, input)
+                }
+            }
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!(
+                "using lazy DFA for is-match search at {:?}",
+                input.get_span()
+            );
+            match e.try_search_half_fwd(&mut cache.hybrid, input) {
+                Ok(x) => x.is_some(),
+                Err(_err) => {
+                    trace!("lazy DFA half search failed: {}", _err);
+                    self.is_match_nofail(cache, input)
+                }
+            }
+        } else {
+            self.is_match_nofail(cache, input)
+        }
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
@@ -845,6 +914,14 @@ impl ReverseAnchored {
             );
             return Err(core);
         }
+        // Note that the caller can still request an anchored search even when
+        // the regex isn't anchored at the start. We detect that case in the
+        // search routines below and just fallback to the core engine. This
+        // is fine because both searches are anchored. It's just a matter of
+        // picking one. Falling back to the core engine is a little simpler,
+        // since if we used the reverse anchored approach, we'd have to add an
+        // extra check to ensure the match reported starts at the place where
+        // the caller requested the search to start.
         if core.info.is_always_anchored_start() {
             debug!(
                 "skipping reverse anchored optimization because \
@@ -930,6 +1007,9 @@ impl Strategy for ReverseAnchored {
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search(cache, input);
+        }
         match self.try_search_half_anchored_rev(cache, input) {
             Err(_err) => {
                 trace!("fast reverse anchored search failed: {}", _err);
@@ -948,6 +1028,9 @@ impl Strategy for ReverseAnchored {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_half(cache, input);
+        }
         match self.try_search_half_anchored_rev(cache, input) {
             Err(_err) => {
                 trace!("fast reverse anchored search failed: {}", _err);
@@ -967,12 +1050,30 @@ impl Strategy for ReverseAnchored {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        if input.get_anchored().is_anchored() {
+            return self.core.is_match(cache, input);
+        }
+        match self.try_search_half_anchored_rev(cache, input) {
+            Err(_err) => {
+                trace!("fast reverse anchored search failed: {}", _err);
+                self.core.is_match_nofail(cache, input)
+            }
+            Ok(None) => false,
+            Ok(Some(_)) => true,
+        }
+    }
+
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_slots(cache, input, slots);
+        }
         match self.try_search_half_anchored_rev(cache, input) {
             Err(_err) => {
                 trace!("fast reverse anchored search failed: {}", _err);
@@ -1034,6 +1135,13 @@ impl ReverseSuffix {
         // requires a reverse scan after a literal match to confirm or reject
         // the match. (Although, in the case of confirmation, it then needs to
         // do another forward scan to find the end position.)
+        //
+        // Note that the caller can still request an anchored search even
+        // when the regex isn't anchored. We detect that case in the search
+        // routines below and just fallback to the core engine. Currently this
+        // optimization assumes all searches are unanchored, so if we do want
+        // to enable this optimization for anchored searches, it will need a
+        // little work to support it.
         if core.info.is_always_anchored_start() {
             debug!(
                 "skipping reverse suffix optimization because \
@@ -1173,7 +1281,7 @@ impl ReverseSuffix {
             e.try_search_half_rev_limited(&input, min_start)
         } else if let Some(e) = self.core.hybrid.get(&input) {
             trace!(
-                "using lazy DFA for reverse inner search at {:?}, \
+                "using lazy DFA for reverse suffix search at {:?}, \
                  but will be stopped at {} to avoid quadratic behavior",
                 input.get_span(),
                 min_start,
@@ -1211,6 +1319,9 @@ impl Strategy for ReverseSuffix {
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search(cache, input);
+        }
         match self.try_search_half_start(cache, input) {
             Err(RetryError::Quadratic(_err)) => {
                 trace!("reverse suffix optimization failed: {}", _err);
@@ -1255,6 +1366,9 @@ impl Strategy for ReverseSuffix {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_half(cache, input);
+        }
         match self.try_search_half_start(cache, input) {
             Err(RetryError::Quadratic(_err)) => {
                 trace!("reverse suffix half optimization failed: {}", _err);
@@ -1303,12 +1417,37 @@ impl Strategy for ReverseSuffix {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        if input.get_anchored().is_anchored() {
+            return self.core.is_match(cache, input);
+        }
+        match self.try_search_half_start(cache, input) {
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse suffix half optimization failed: {}", _err);
+                self.core.is_match_nofail(cache, input)
+            }
+            Err(RetryError::Fail(_err)) => {
+                trace!(
+                    "reverse suffix reverse fast half search failed: {}",
+                    _err
+                );
+                self.core.is_match_nofail(cache, input)
+            }
+            Ok(None) => false,
+            Ok(Some(_)) => true,
+        }
+    }
+
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_slots(cache, input, slots);
+        }
         if !self.core.is_capture_search_needed(slots.len()) {
             trace!("asked for slots unnecessarily, trying fast path");
             let m = self.search(cache, input)?;
@@ -1396,6 +1535,13 @@ impl ReverseInner {
         // or when the literal scan matches. If it matches, then confirming the
         // match requires a reverse scan followed by a forward scan to confirm
         // or reject, which is a fair bit of work.
+        //
+        // Note that the caller can still request an anchored search even
+        // when the regex isn't anchored. We detect that case in the search
+        // routines below and just fallback to the core engine. Currently this
+        // optimization assumes all searches are unanchored, so if we do want
+        // to enable this optimization for anchored searches, it will need a
+        // little work to support it.
         if core.info.is_always_anchored_start() {
             debug!(
                 "skipping reverse inner optimization because \
@@ -1440,7 +1586,7 @@ impl ReverseInner {
             .utf8(core.info.config().get_utf8_empty())
             .nfa_size_limit(core.info.config().get_nfa_size_limit())
             .shrink(false)
-            .captures(false)
+            .which_captures(WhichCaptures::None)
             .look_matcher(lookm);
         let result = thompson::Compiler::new()
             .configure(thompson_config)
@@ -1635,6 +1781,9 @@ impl Strategy for ReverseInner {
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search(cache, input);
+        }
         match self.try_search_full(cache, input) {
             Err(RetryError::Quadratic(_err)) => {
                 trace!("reverse inner optimization failed: {}", _err);
@@ -1654,6 +1803,9 @@ impl Strategy for ReverseInner {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_half(cache, input);
+        }
         match self.try_search_full(cache, input) {
             Err(RetryError::Quadratic(_err)) => {
                 trace!("reverse inner half optimization failed: {}", _err);
@@ -1669,12 +1821,34 @@ impl Strategy for ReverseInner {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
+    fn is_match(&self, cache: &mut Cache, input: &Input<'_>) -> bool {
+        if input.get_anchored().is_anchored() {
+            return self.core.is_match(cache, input);
+        }
+        match self.try_search_full(cache, input) {
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse inner half optimization failed: {}", _err);
+                self.core.is_match_nofail(cache, input)
+            }
+            Err(RetryError::Fail(_err)) => {
+                trace!("reverse inner fast half search failed: {}", _err);
+                self.core.is_match_nofail(cache, input)
+            }
+            Ok(None) => false,
+            Ok(Some(_)) => true,
+        }
+    }
+
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
+        if input.get_anchored().is_anchored() {
+            return self.core.search_slots(cache, input, slots);
+        }
         if !self.core.is_capture_search_needed(slots.len()) {
             trace!("asked for slots unnecessarily, trying fast path");
             let m = self.search(cache, input)?;

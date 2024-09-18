@@ -19,16 +19,14 @@ use object::{Object, ObjectSection};
 use std::error::Error;
 use std::fs;
 
-/// Reads a file and displays the content of the ".boot" section.
+/// Reads a file and displays the name of each section.
 fn main() -> Result<(), Box<dyn Error>> {
-  let bin_data = fs::read("./multiboot2-binary.elf")?;
-  let obj_file = object::File::parse(&*bin_data)?;
-  if let Some(section) = obj_file.section_by_name(".boot") {
-    println!("{:#x?}", section.data()?);
-  } else {
-    eprintln!("section not available");
-  }
-  Ok(())
+    let binary_data = fs::read("path/to/binary")?;
+    let file = object::File::parse(&*binary_data)?;
+    for section in file.sections() {
+        println!("{}", section.name()?);
+    }
+    Ok(())
 }
 ```
 
@@ -39,8 +37,8 @@ See [`crates/examples`](crates/examples) for more examples.
 Changes to MSRV are considered breaking changes. We are conservative about changing the MSRV,
 but sometimes are required to due to dependencies. The MSRV is:
 
-  * 1.52.0 for the `read` feature and its dependencies.
-  * 1.61.0 for the `write` feature and its dependencies.
+  * 1.60.0 for the `read` feature and its dependencies.
+  * 1.65.0 for other features.
 
 ## License
 

@@ -16,10 +16,18 @@ use std::io;
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
+use deranged::RangedI64;
+use powerfmt::ext::FormatterExt;
+use powerfmt::smart_display::{self, FormatterOptions, Metadata, SmartDisplay};
+
 use crate::convert::*;
 use crate::date::{MAX_YEAR, MIN_YEAR};
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
+use crate::internal_macros::{
+    bug, cascade, const_try, const_try_opt, div_floor, ensure_ranged, expect_opt, impl_add_assign,
+    impl_sub_assign,
+};
 #[cfg(feature = "parsing")]
 use crate::parsing::{Parsable, Parsed};
 use crate::{error, util, Date, Duration, Month, Time, UtcOffset, Weekday};
@@ -30,24 +38,24 @@ pub(crate) mod offset_kind {
     pub enum Fixed {}
 }
 
-pub(crate) use sealed::MaybeOffset;
 use sealed::*;
+pub(crate) use sealed::{MaybeOffset, NoOffset};
 mod sealed {
     use super::*;
 
-    /// A type that is guaranteed to be either `()` or [`UtcOffset`].
+    #[derive(Debug, Clone, Copy)]
+    pub struct NoOffset;
+
+    /// A type that is guaranteed to be either [`NoOffset`] or [`UtcOffset`].
     ///
     /// **Do not** add any additional implementations of this trait.
     #[allow(unreachable_pub)] // intentional
     pub trait MaybeOffsetType {}
-    impl MaybeOffsetType for () {}
+    impl MaybeOffsetType for NoOffset {}
     impl MaybeOffsetType for UtcOffset {}
 
     pub trait MaybeOffset: Sized {
         /// The offset type as it is stored in memory.
-        #[cfg(feature = "quickcheck")]
-        type MemoryOffsetType: Copy + MaybeOffsetType + quickcheck::Arbitrary;
-        #[cfg(not(feature = "quickcheck"))]
         type MemoryOffsetType: Copy + MaybeOffsetType;
 
         /// The offset type as it should be thought about.
@@ -80,21 +88,25 @@ mod sealed {
     pub trait HasLogicalOffset: MaybeOffset<LogicalOffsetType = UtcOffset> {}
     impl<T: MaybeOffset<LogicalOffsetType = UtcOffset>> HasLogicalOffset for T {}
 
-    pub trait NoLogicalOffset: MaybeOffset<LogicalOffsetType = ()> {}
-    impl<T: MaybeOffset<LogicalOffsetType = ()>> NoLogicalOffset for T {}
+    pub trait NoLogicalOffset: MaybeOffset<LogicalOffsetType = NoOffset> {}
+    impl<T: MaybeOffset<LogicalOffsetType = NoOffset>> NoLogicalOffset for T {}
 
     // Traits to indicate whether a `MaybeOffset` has a memory offset type of `UtcOffset` or not.
 
     pub trait HasMemoryOffset: MaybeOffset<MemoryOffsetType = UtcOffset> {}
     impl<T: MaybeOffset<MemoryOffsetType = UtcOffset>> HasMemoryOffset for T {}
 
-    pub trait NoMemoryOffset: MaybeOffset<MemoryOffsetType = ()> {}
-    impl<T: MaybeOffset<MemoryOffsetType = ()>> NoMemoryOffset for T {}
+    pub trait NoMemoryOffset: MaybeOffset<MemoryOffsetType = NoOffset> {}
+    impl<T: MaybeOffset<MemoryOffsetType = NoOffset>> NoMemoryOffset for T {}
 
     // Traits to indicate backing type being implemented.
 
     pub trait IsOffsetKindNone:
-        MaybeOffset<Self_ = offset_kind::None, MemoryOffsetType = (), LogicalOffsetType = ()>
+        MaybeOffset<
+            Self_ = offset_kind::None,
+            MemoryOffsetType = NoOffset,
+            LogicalOffsetType = NoOffset,
+        >
     {
     }
     impl IsOffsetKindNone for offset_kind::None {}
@@ -111,16 +123,16 @@ mod sealed {
 }
 
 impl MaybeOffset for offset_kind::None {
-    type MemoryOffsetType = ();
-    type LogicalOffsetType = ();
+    type MemoryOffsetType = NoOffset;
+    type LogicalOffsetType = NoOffset;
 
     type Self_ = Self;
 
     const STATIC_OFFSET: Option<UtcOffset> = None;
 
     #[cfg(feature = "parsing")]
-    fn try_from_parsed(_: Parsed) -> Result<(), error::TryFromParsed> {
-        Ok(())
+    fn try_from_parsed(_: Parsed) -> Result<NoOffset, error::TryFromParsed> {
+        Ok(NoOffset)
     }
 }
 
@@ -191,7 +203,10 @@ pub(crate) const fn maybe_offset_from_offset<O: MaybeOffset>(
 // endregion const trait methods hacks
 
 /// The Julian day of the Unix epoch.
-const UNIX_EPOCH_JULIAN_DAY: i32 = Date::__from_ordinal_date_unchecked(1970, 1).to_julian_day();
+// Safety: `ordinal` is not zero.
+#[allow(clippy::undocumented_unsafe_blocks)]
+const UNIX_EPOCH_JULIAN_DAY: i32 =
+    unsafe { Date::__from_ordinal_date_unchecked(1970, 1) }.to_julian_day();
 
 pub struct DateTime<O: MaybeOffset> {
     pub(crate) date: Date,
@@ -214,19 +229,20 @@ impl DateTime<offset_kind::None> {
     pub const MIN: Self = Self {
         date: Date::MIN,
         time: Time::MIN,
-        offset: (),
+        offset: NoOffset,
     };
 
     pub const MAX: Self = Self {
         date: Date::MAX,
         time: Time::MAX,
-        offset: (),
+        offset: NoOffset,
     };
 }
 
 impl DateTime<offset_kind::Fixed> {
     pub const UNIX_EPOCH: Self = Self {
-        date: Date::__from_ordinal_date_unchecked(1970, 1),
+        // Safety: `ordinal` is not zero.
+        date: unsafe { Date::__from_ordinal_date_unchecked(1970, 1) },
         time: Time::MIDNIGHT,
         offset: UtcOffset::UTC,
     };
@@ -240,7 +256,7 @@ impl<O: MaybeOffset> DateTime<O> {
         Self {
             date,
             time,
-            offset: (),
+            offset: NoOffset,
         }
     }
 
@@ -248,28 +264,27 @@ impl<O: MaybeOffset> DateTime<O> {
     where
         O: HasLogicalOffset,
     {
-        #[allow(clippy::missing_docs_in_private_items)]
-        const MIN_TIMESTAMP: i64 = Date::MIN.midnight().assume_utc().unix_timestamp();
-        #[allow(clippy::missing_docs_in_private_items)]
-        const MAX_TIMESTAMP: i64 = Date::MAX
-            .with_time(Time::__from_hms_nanos_unchecked(23, 59, 59, 999_999_999))
-            .assume_utc()
-            .unix_timestamp();
-
-        ensure_value_in_range!(timestamp in MIN_TIMESTAMP => MAX_TIMESTAMP);
+        type Timestamp = RangedI64<
+            { Date::MIN.midnight().assume_utc().unix_timestamp() },
+            { Date::MAX.with_time(Time::MAX).assume_utc().unix_timestamp() },
+        >;
+        ensure_ranged!(Timestamp: timestamp);
 
         // Use the unchecked method here, as the input validity has already been verified.
         let date = Date::from_julian_day_unchecked(
-            UNIX_EPOCH_JULIAN_DAY + div_floor!(timestamp, Second.per(Day) as i64) as i32,
+            UNIX_EPOCH_JULIAN_DAY + div_floor!(timestamp, Second::per(Day) as i64) as i32,
         );
 
-        let seconds_within_day = timestamp.rem_euclid(Second.per(Day) as _);
-        let time = Time::__from_hms_nanos_unchecked(
-            (seconds_within_day / Second.per(Hour) as i64) as _,
-            ((seconds_within_day % Second.per(Hour) as i64) / Minute.per(Hour) as i64) as _,
-            (seconds_within_day % Second.per(Minute) as i64) as _,
-            0,
-        );
+        let seconds_within_day = timestamp.rem_euclid(Second::per(Day) as _);
+        // Safety: All values are in range.
+        let time = unsafe {
+            Time::__from_hms_nanos_unchecked(
+                (seconds_within_day / Second::per(Hour) as i64) as _,
+                ((seconds_within_day % Second::per(Hour) as i64) / Minute::per(Hour) as i64) as _,
+                (seconds_within_day % Second::per(Minute) as i64) as _,
+                0,
+            )
+        };
 
         Ok(Self {
             date,
@@ -284,17 +299,20 @@ impl<O: MaybeOffset> DateTime<O> {
     {
         let datetime = const_try!(Self::from_unix_timestamp(div_floor!(
             timestamp,
-            Nanosecond.per(Second) as i128
+            Nanosecond::per(Second) as i128
         ) as i64));
 
         Ok(Self {
             date: datetime.date,
-            time: Time::__from_hms_nanos_unchecked(
-                datetime.hour(),
-                datetime.minute(),
-                datetime.second(),
-                timestamp.rem_euclid(Nanosecond.per(Second) as _) as u32,
-            ),
+            // Safety: `nanosecond` is in range due to `rem_euclid`.
+            time: unsafe {
+                Time::__from_hms_nanos_unchecked(
+                    datetime.hour(),
+                    datetime.minute(),
+                    datetime.second(),
+                    timestamp.rem_euclid(Nanosecond::per(Second) as _) as u32,
+                )
+            },
             offset: maybe_offset_from_offset::<O>(UtcOffset::UTC),
         })
     }
@@ -455,9 +473,9 @@ impl<O: MaybeOffset> DateTime<O> {
         let offset = maybe_offset_as_offset::<O>(self.offset).whole_seconds() as i64;
 
         let days =
-            (self.to_julian_day() as i64 - UNIX_EPOCH_JULIAN_DAY as i64) * Second.per(Day) as i64;
-        let hours = self.hour() as i64 * Second.per(Hour) as i64;
-        let minutes = self.minute() as i64 * Second.per(Minute) as i64;
+            (self.to_julian_day() as i64 - UNIX_EPOCH_JULIAN_DAY as i64) * Second::per(Day) as i64;
+        let hours = self.hour() as i64 * Second::per(Hour) as i64;
+        let minutes = self.minute() as i64 * Second::per(Minute) as i64;
         let seconds = self.second() as i64;
         days + hours + minutes + seconds - offset
     }
@@ -466,7 +484,7 @@ impl<O: MaybeOffset> DateTime<O> {
     where
         O: HasLogicalOffset,
     {
-        self.unix_timestamp() as i128 * Nanosecond.per(Second) as i128 + self.nanosecond() as i128
+        self.unix_timestamp() as i128 * Nanosecond::per(Second) as i128 + self.nanosecond() as i128
     }
     // endregion unix timestamp getters
     // endregion: getters
@@ -526,7 +544,8 @@ impl<O: MaybeOffset> DateTime<O> {
         }
 
         Some(DateTime {
-            date: Date::__from_ordinal_date_unchecked(year, ordinal),
+            // Safety: `ordinal` is not zero.
+            date: unsafe { Date::__from_ordinal_date_unchecked(year, ordinal) },
             time,
             offset,
         })
@@ -558,12 +577,12 @@ impl<O: MaybeOffset> DateTime<O> {
         let mut ordinal = ordinal as i16;
 
         // Cascade the values twice. This is needed because the values are adjusted twice above.
-        cascade!(second in 0..Second.per(Minute) as i16 => minute);
-        cascade!(second in 0..Second.per(Minute) as i16 => minute);
-        cascade!(minute in 0..Minute.per(Hour) as i16 => hour);
-        cascade!(minute in 0..Minute.per(Hour) as i16 => hour);
-        cascade!(hour in 0..Hour.per(Day) as i8 => ordinal);
-        cascade!(hour in 0..Hour.per(Day) as i8 => ordinal);
+        cascade!(second in 0..Second::per(Minute) as i16 => minute);
+        cascade!(second in 0..Second::per(Minute) as i16 => minute);
+        cascade!(minute in 0..Minute::per(Hour) as i16 => hour);
+        cascade!(minute in 0..Minute::per(Hour) as i16 => hour);
+        cascade!(hour in 0..Hour::per(Day) as i8 => ordinal);
+        cascade!(hour in 0..Hour::per(Day) as i8 => ordinal);
         cascade!(ordinal => year);
 
         debug_assert!(ordinal > 0);
@@ -572,12 +591,15 @@ impl<O: MaybeOffset> DateTime<O> {
         (
             year,
             ordinal as _,
-            Time::__from_hms_nanos_unchecked(
-                hour as _,
-                minute as _,
-                second as _,
-                self.nanosecond(),
-            ),
+            // Safety: The cascades above ensure the values are in range.
+            unsafe {
+                Time::__from_hms_nanos_unchecked(
+                    hour as _,
+                    minute as _,
+                    second as _,
+                    self.nanosecond(),
+                )
+            },
         )
     }
     // endregion to offset
@@ -653,6 +675,7 @@ impl<O: MaybeOffset> DateTime<O> {
     // endregion saturating arithmetic
 
     // region: replacement
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_time(self, time: Time) -> Self {
         Self {
             date: self.date,
@@ -661,6 +684,7 @@ impl<O: MaybeOffset> DateTime<O> {
         }
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_date(self, date: Date) -> Self {
         Self {
             date,
@@ -669,6 +693,7 @@ impl<O: MaybeOffset> DateTime<O> {
         }
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_date_time(self, date_time: DateTime<offset_kind::None>) -> Self
     where
         O: HasLogicalOffset,
@@ -680,6 +705,7 @@ impl<O: MaybeOffset> DateTime<O> {
         }
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_year(self, year: i32) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: const_try!(self.date.replace_year(year)),
@@ -688,6 +714,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_month(self, month: Month) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: const_try!(self.date.replace_month(month)),
@@ -696,6 +723,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_day(self, day: u8) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: const_try!(self.date.replace_day(day)),
@@ -704,6 +732,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_hour(self, hour: u8) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: self.date,
@@ -712,6 +741,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_minute(self, minute: u8) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: self.date,
@@ -720,6 +750,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_second(self, second: u8) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: self.date,
@@ -728,6 +759,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_millisecond(
         self,
         millisecond: u16,
@@ -739,6 +771,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_microsecond(
         self,
         microsecond: u32,
@@ -750,6 +783,7 @@ impl<O: MaybeOffset> DateTime<O> {
         })
     }
 
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_nanosecond(self, nanosecond: u32) -> Result<Self, error::ComponentRange> {
         Ok(Self {
             date: self.date,
@@ -760,6 +794,7 @@ impl<O: MaybeOffset> DateTime<O> {
 
     // Don't gate this on just having an offset, as `ZonedDateTime` cannot be set to an arbitrary
     // offset.
+    #[must_use = "this does not modify the original value"]
     pub const fn replace_offset(self, offset: UtcOffset) -> DateTime<offset_kind::Fixed>
     where
         O: IsOffsetKindFixed,
@@ -882,23 +917,60 @@ impl<O: MaybeOffset> DateTime<O> {
     // endregion deprecated time getters
 }
 
-impl<O: MaybeOffset> fmt::Debug for DateTime<O> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <Self as fmt::Display>::fmt(self, f)
+// region: trait impls
+mod private {
+    use super::*;
+
+    #[non_exhaustive]
+    #[derive(Debug, Clone, Copy)]
+    pub struct DateTimeMetadata {
+        pub(super) maybe_offset: Option<UtcOffset>,
+    }
+}
+pub(crate) use private::DateTimeMetadata;
+
+impl<O: MaybeOffset> SmartDisplay for DateTime<O> {
+    type Metadata = DateTimeMetadata;
+
+    fn metadata(&self, _: FormatterOptions) -> Metadata<Self> {
+        let maybe_offset = maybe_offset_as_offset_opt::<O>(self.offset);
+        let width = match maybe_offset {
+            Some(offset) => smart_display::padded_width_of!(self.date, " ", self.time, " ", offset),
+            None => smart_display::padded_width_of!(self.date, " ", self.time),
+        };
+        Metadata::new(width, self, DateTimeMetadata { maybe_offset })
+    }
+
+    fn fmt_with_metadata(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        metadata: Metadata<Self>,
+    ) -> fmt::Result {
+        match metadata.maybe_offset {
+            Some(offset) => f.pad_with_width(
+                metadata.unpadded_width(),
+                format_args!("{} {} {offset}", self.date, self.time),
+            ),
+            None => f.pad_with_width(
+                metadata.unpadded_width(),
+                format_args!("{} {}", self.date, self.time),
+            ),
+        }
     }
 }
 
 impl<O: MaybeOffset> fmt::Display for DateTime<O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.date, self.time)?;
-        if let Some(offset) = maybe_offset_as_offset_opt::<O>(self.offset) {
-            write!(f, " {offset}")?;
-        }
-        Ok(())
+        SmartDisplay::fmt(self, f)
     }
 }
 
-// region: trait impls
+impl<O: MaybeOffset> fmt::Debug for DateTime<O> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 impl<O: MaybeOffset> PartialEq for DateTime<O> {
     fn eq(&self, rhs: &Self) -> bool {
         if O::HAS_LOGICAL_OFFSET {
@@ -941,6 +1013,9 @@ impl<O: MaybeOffset> Hash for DateTime<O> {
 impl<O: MaybeOffset> Add<Duration> for DateTime<O> {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This may panic if an overflow occurs.
     fn add(self, duration: Duration) -> Self {
         self.checked_add(duration)
             .expect("resulting value is out of range")
@@ -950,6 +1025,9 @@ impl<O: MaybeOffset> Add<Duration> for DateTime<O> {
 impl<O: MaybeOffset> Add<StdDuration> for DateTime<O> {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This may panic if an overflow occurs.
     fn add(self, duration: StdDuration) -> Self::Output {
         let (is_next_day, time) = self.time.adjusting_add_std(duration);
 
@@ -982,6 +1060,9 @@ impl<O: MaybeOffset> AddAssign<StdDuration> for DateTime<O> {
 impl<O: MaybeOffset> Sub<Duration> for DateTime<O> {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This may panic if an overflow occurs.
     fn sub(self, duration: Duration) -> Self {
         self.checked_sub(duration)
             .expect("resulting value is out of range")
@@ -991,6 +1072,9 @@ impl<O: MaybeOffset> Sub<Duration> for DateTime<O> {
 impl<O: MaybeOffset> Sub<StdDuration> for DateTime<O> {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This may panic if an overflow occurs.
     fn sub(self, duration: StdDuration) -> Self::Output {
         let (is_previous_day, time) = self.time.adjusting_sub_std(duration);
 
@@ -1156,9 +1240,12 @@ impl From<DateTime<offset_kind::Fixed>> for SystemTime {
     feature = "wasm-bindgen"
 ))]
 impl From<js_sys::Date> for DateTime<offset_kind::Fixed> {
+    /// # Panics
+    ///
+    /// This may panic if the timestamp can not be represented.
     fn from(js_date: js_sys::Date) -> Self {
         // get_time() returns milliseconds
-        let timestamp_nanos = (js_date.get_time() * Nanosecond.per(Millisecond) as f64) as i128;
+        let timestamp_nanos = (js_date.get_time() * Nanosecond::per(Millisecond) as f64) as i128;
         Self::from_unix_timestamp_nanos(timestamp_nanos)
             .expect("invalid timestamp: Timestamp cannot fit in range")
     }
@@ -1173,7 +1260,7 @@ impl From<DateTime<offset_kind::Fixed>> for js_sys::Date {
     fn from(datetime: DateTime<offset_kind::Fixed>) -> Self {
         // new Date() takes milliseconds
         let timestamp =
-            (datetime.unix_timestamp_nanos() / Nanosecond.per(Millisecond) as i128) as f64;
+            (datetime.unix_timestamp_nanos() / Nanosecond::per(Millisecond) as i128) as f64;
         js_sys::Date::new(&timestamp.into())
     }
 }

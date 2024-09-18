@@ -13,9 +13,12 @@ use std::io;
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
-use crate::date_time::offset_kind;
+use powerfmt::smart_display::{FormatterOptions, Metadata, SmartDisplay};
+
+use crate::date_time::{offset_kind, DateTimeMetadata};
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
+use crate::internal_macros::{const_try, const_try_opt};
 #[cfg(feature = "parsing")]
 use crate::parsing::Parsable;
 use crate::{error, Date, DateTime, Duration, Month, PrimitiveDateTime, Time, UtcOffset, Weekday};
@@ -67,6 +70,39 @@ impl OffsetDateTime {
         Inner::now_local().map(Self)
     }
     // endregion now
+
+    /// Create a new `OffsetDateTime` with the given [`Date`], [`Time`], and [`UtcOffset`].
+    ///
+    /// ```
+    /// # use time::{Date, Month, OffsetDateTime, Time, UtcOffset};
+    /// # use time_macros::datetime;
+    /// let dt = OffsetDateTime::new_in_offset(
+    ///     Date::from_calendar_date(2024, Month::January, 1)?,
+    ///     Time::from_hms_nano(12, 59, 59, 500_000_000)?,
+    ///     UtcOffset::from_hms(-5, 0, 0)?,
+    /// );
+    /// assert_eq!(dt, datetime!(2024-01-01 12:59:59.5 -5));
+    /// # Ok::<_, time::error::Error>(())
+    /// ```
+    pub const fn new_in_offset(date: Date, time: Time, offset: UtcOffset) -> Self {
+        PrimitiveDateTime::new(date, time).assume_offset(offset)
+    }
+
+    /// Create a new `OffsetDateTime` with the given [`Date`] and [`Time`] in the UTC timezone.
+    ///
+    /// ```
+    /// # use time::{Date, Month, OffsetDateTime, Time};
+    /// # use time_macros::datetime;
+    /// let dt = OffsetDateTime::new_utc(
+    ///     Date::from_calendar_date(2024, Month::January, 1)?,
+    ///     Time::from_hms_nano(12, 59, 59, 500_000_000)?,
+    /// );
+    /// assert_eq!(dt, datetime!(2024-01-01 12:59:59.5 UTC));
+    /// # Ok::<_, time::error::Error>(())
+    /// ```
+    pub const fn new_utc(date: Date, time: Time) -> Self {
+        PrimitiveDateTime::new(date, time).assume_utc()
+    }
 
     /// Convert the `OffsetDateTime` from the current [`UtcOffset`] to the provided [`UtcOffset`].
     ///
@@ -1033,9 +1069,25 @@ impl OffsetDateTime {
     }
 }
 
+impl SmartDisplay for OffsetDateTime {
+    type Metadata = DateTimeMetadata;
+
+    fn metadata(&self, f: FormatterOptions) -> Metadata<Self> {
+        self.0.metadata(f).reuse()
+    }
+
+    fn fmt_with_metadata(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        metadata: Metadata<Self>,
+    ) -> fmt::Result {
+        self.0.fmt_with_metadata(f, metadata.reuse())
+    }
+}
+
 impl fmt::Display for OffsetDateTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        SmartDisplay::fmt(self, f)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use proc_macro2::TokenStream;
-use quote::{ToTokens, TokenStreamExt};
+use quote::{quote, ToTokens, TokenStreamExt};
 use syn::Ident;
 
 use crate::ast::Fields;
@@ -10,7 +10,7 @@ use crate::codegen::{Field, FieldsGen};
 use crate::usage::{self, IdentRefSet, IdentSet, UsesTypeParams};
 
 /// A variant of the enum which is deriving `FromMeta`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Variant<'a> {
     /// The name which will appear in code passed to the `FromMeta` input.
     pub name_in_attr: Cow<'a, String>,
@@ -25,6 +25,10 @@ pub struct Variant<'a> {
 
     /// Whether or not the variant should be skipped in the generated code.
     pub skip: bool,
+
+    /// Whether or not the variant should be used to create an instance for
+    /// `FromMeta::from_word`.
+    pub word: bool,
 
     pub allow_unknown_fields: bool,
 }
@@ -50,6 +54,16 @@ impl<'a> UsesTypeParams for Variant<'a> {
         type_set: &'b IdentSet,
     ) -> IdentRefSet<'b> {
         self.data.uses_type_params(options, type_set)
+    }
+}
+
+impl<'a> ToTokens for Variant<'a> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        if self.data.is_unit() {
+            self.as_unit_match_arm().to_tokens(tokens);
+        } else {
+            self.as_data_match_arm().to_tokens(tokens)
+        }
     }
 }
 
@@ -120,8 +134,9 @@ impl<'a> ToTokens for DataMatchArm<'a> {
 
             tokens.append_all(quote!(
                 #name_in_attr => {
-                    if let ::syn::Meta::List(ref __data) = *__nested {
-                        let __items = &__data.nested;
+                    if let ::darling::export::syn::Meta::List(ref __data) = *__nested {
+                        let __items = ::darling::export::NestedMeta::parse_meta_list(__data.tokens.clone())?;
+                        let __items = &__items;
 
                         #declare_errors
 

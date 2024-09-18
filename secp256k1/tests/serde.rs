@@ -1,16 +1,16 @@
 #![cfg(feature = "serde")]
 
 extern crate bincode;
-#[cfg(target_arch = "x86_64")]
-extern crate cbor;
 extern crate secp256k1;
+extern crate serde_cbor;
 
-use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 #[cfg(feature = "global-context")]
-use secp256k1::{Secp256k1, KeyPair};
+use secp256k1::{Keypair, Secp256k1};
+use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 
 // Arbitrary key data.
 
+#[rustfmt::skip]
 static SK_BYTES: [u8; 32] = [
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
     0x16, 0x17, 0x18, 0x19, 0x20, 0x21, 0x22, 0x23,
@@ -18,6 +18,7 @@ static SK_BYTES: [u8; 32] = [
     0x0f, 0x10, 0x1f, 0xa0, 0xa9, 0xaa, 0xaf, 0xff,
 ];
 
+#[rustfmt::skip]
 static PK_BYTES: [u8; 33] = [
     0x02,
     0x18, 0x84, 0x57, 0x81, 0xf6, 0x31, 0xc4, 0x8f,
@@ -26,6 +27,7 @@ static PK_BYTES: [u8; 33] = [
     0x4a, 0xc8, 0x87, 0xfe, 0x91, 0xdd, 0xd1, 0x66,
 ];
 
+#[rustfmt::skip]
 static XONLY_PK_BYTES: [u8; 32] = [
     0x18, 0x84, 0x57, 0x81, 0xf6, 0x31, 0xc4, 0x8f,
     0x1c, 0x97, 0x09, 0xe2, 0x30, 0x92, 0x06, 0x7d,
@@ -57,9 +59,9 @@ fn bincode_public_key() {
 
 #[test]
 #[cfg(feature = "global-context")]
-fn bincode_key_pair() {
+fn bincode_keypair() {
     let secp = Secp256k1::new();
-    let kp = KeyPair::from_seckey_slice(&secp, &SK_BYTES).expect("failed to create keypair");
+    let kp = Keypair::from_seckey_slice(&secp, &SK_BYTES).expect("failed to create keypair");
     let ser = bincode::serialize(&kp).unwrap();
 
     assert_eq!(ser, SK_BYTES);
@@ -67,21 +69,19 @@ fn bincode_key_pair() {
 
 #[test]
 fn bincode_x_only_public_key() {
-    let pk = XOnlyPublicKey::from_slice(&XONLY_PK_BYTES).expect("failed to create xonly pk from slice");
+    let pk =
+        XOnlyPublicKey::from_slice(&XONLY_PK_BYTES).expect("failed to create xonly pk from slice");
     let ser = bincode::serialize(&pk).unwrap();
 
     assert_eq!(ser, XONLY_PK_BYTES);
 }
 
-// cbor adds an additional byte of metadata to certain byte values (byte_value < 24).
 #[test]
-#[cfg(target_arch = "x86_64")]
 fn cbor() {
     let sk = secret_key();
-
-    let mut e = cbor::Encoder::from_memory();
-    e.encode(sk.as_ref()).unwrap();
-
-    // 52 because there are 22 bytes in the key for which cbor adds metadata.
-    assert_eq!(e.as_bytes().len(), 52);
+    let e = serde_cbor::to_vec(&sk).unwrap();
+    // Secret key is 32 bytes. CBOR adds a byte of metadata for 20 of these bytes,
+    // (Apparently, any byte whose value is <24 gets an extra byte.)
+    // It also adds a 1-byte length prefix and a byte of metadata for the whole vector.
+    assert_eq!(e.len(), 54);
 }

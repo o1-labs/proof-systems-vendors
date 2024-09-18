@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.8.3] - 2024-02-25 <a name="1.8.3"></a>
+### Fixed
+- Potential soudness issues resolved.
+
 ## [1.8.2] - 2021-10-22 <a name="1.8.2"></a>
 ### Fixed
 - Remove cargo resolver=2 from manifest to resolve errors in older versions of Rust that still
@@ -226,7 +230,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [@samcrow]: https://github.com/samcrow
 
 
-[Unreleased]: https://github.com/starkat99/half-rs/compare/v1.8.2...HEAD
+[Unreleased]: https://github.com/starkat99/half-rs/compare/v1.8.3...HEAD
+[1.8.3]: https://github.com/starkat99/half-rs/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/starkat99/half-rs/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/starkat99/half-rs/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/starkat99/half-rs/compare/v1.7.1...v1.8.0

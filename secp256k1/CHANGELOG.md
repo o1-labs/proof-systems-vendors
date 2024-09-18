@@ -1,7 +1,44 @@
+# 0.28.2 - 2024-01-30
 
-# 0.24.2 - 2022-12-05
+* Implement `Hash` for `Scalar` [#674](https://github.com/rust-bitcoin/rust-secp256k1/pull/674)
+* Implement `Ord` and `PartialOrd` for `RecoverableSignature` [#611](https://github.com/rust-bitcoin/rust-secp256k1/pull/611)
+* Add byte accessors to `ElligatorSwiftSharedSecret` [#676](https://github.com/rust-bitcoin/rust-secp256k1/pull/676)
 
-* Backport [fix soundness issue with `preallocated_gen_new`](https://github.com/rust-bitcoin/rust-secp256k1/pull/548)
+# 0.28.1 - 2024-01-03
+
+* Update secp265k1-sys to 0.9.2 (contains some fixes for WASM and [a FFI binding fix](https://github.com/rust-bitcoin/rust-secp256k1/pull/6700))
+* Various improvements to the `SerializedSignature` type [#658](https://github.com/rust-bitcoin/rust-secp256k1/pull/658) [#659](https://github.com/rust-bitcoin/rust-secp256k1/pull/659)
+
+# 0.28.0 - 2023-10-23
+
+* Add bindings to the ElligatorSwift implementation [#627](https://github.com/rust-bitcoin/rust-secp256k1/pull/627)
+* Depend on recent release of `bitcoin_hashes` v0.13.0 [#621](https://github.com/rust-bitcoin/rust-secp256k1/pull/621)
+* Add a verify function to `PublicKey` [#618](https://github.com/rust-bitcoin/rust-secp256k1/pull/618)
+* Add serialize function for schnorr::Signature [#607](https://github.com/rust-bitcoin/rust-secp256k1/pull/607)
+* Bump MSRV to 1.48 [#595](https://github.com/rust-bitcoin/rust-secp256k1/pull/595)
+* Remove implementations of `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and `Hash` from the
+  `impl_array_newtype` macro. Users will now need to derive these traits if they are wanted.
+
+# 0.27.0 - 2023-03-15
+
+* [Depend on newly release `bitcoin_hashes` v0.12](https://github.com/rust-bitcoin/rust-secp256k1/pull/588).
+* [Implement `Debug` trait for `Scalar` type](https://github.com/rust-bitcoin/rust-secp256k1/pull/578).
+* [Implement `insecure-erase`](https://github.com/rust-bitcoin/rust-secp256k1/pull/582).
+
+# 0.26.0 - 2202-12-19
+
+* Update libsecp25k1 to v0.2.0
+
+# 0.25.0 - 2022-12-07
+
+* [Fix soundness issue with `preallocated_gen_new`](https://github.com/rust-bitcoin/rust-secp256k1/pull/548)
+* Update to `secp256k1-sys` [v0.7.0](https://github.com/rust-bitcoin/rust-secp256k1/pull/549)
+* Use type system to [improve safety](https://github.com/rust-bitcoin/rust-secp256k1/pull/483).
+* [Change secp256k1-sys symbol names to 0_6_1](https://github.com/rust-bitcoin/rust-secp256k1/pull/490).
+* [Introduce `rustfmt`](https://github.com/rust-bitcoin/rust-secp256k1/pull/499) to the codebase.
+* [Make all raw pointer methods go through the CPtr trait](https://github.com/rust-bitcoin/rust-secp256k1/pull/507).
+* [Make comparison functions stable](https://github.com/rust-bitcoin/rust-secp256k1/pull/518).
+* [Remove](https://github.com/rust-bitcoin/rust-secp256k1/pull/512) public constant `ONE_KEY` (consider using `FromStr` as a replacement).
 
 # 0.24.1 - 2022-10-25
 

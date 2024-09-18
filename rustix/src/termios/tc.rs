@@ -1,7 +1,9 @@
 use crate::fd::AsFd;
-use crate::pid::Pid;
+#[cfg(not(target_os = "espidf"))]
 use crate::termios::{Action, OptionalActions, QueueSelector, Termios, Winsize};
 use crate::{backend, io};
+
+pub use crate::pid::Pid;
 
 /// `tcgetattr(fd)`—Get terminal attributes.
 ///
@@ -15,7 +17,7 @@ use crate::{backend, io};
 /// [POSIX `tcgetattr`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/tcgetattr.html
 /// [Linux `ioctl_tty`]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
 /// [Linux `termios`]: https://man7.org/linux/man-pages/man3/termios.3.html
-#[cfg(not(any(windows, target_os = "wasi")))]
+#[cfg(not(any(windows, target_os = "espidf", target_os = "wasi")))]
 #[inline]
 #[doc(alias = "TCGETS")]
 #[doc(alias = "TCGETS2")]
@@ -32,7 +34,7 @@ pub fn tcgetattr<Fd: AsFd>(fd: Fd) -> io::Result<Termios> {
 ///  - [Linux]
 ///
 /// [Linux]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
-#[cfg(not(any(windows, target_os = "wasi")))]
+#[cfg(not(any(windows, target_os = "espidf", target_os = "wasi")))]
 #[inline]
 #[doc(alias = "TIOCGWINSZ")]
 pub fn tcgetwinsize<Fd: AsFd>(fd: Fd) -> io::Result<Winsize> {
@@ -42,6 +44,11 @@ pub fn tcgetwinsize<Fd: AsFd>(fd: Fd) -> io::Result<Winsize> {
 /// `tcgetpgrp(fd)`—Get the terminal foreground process group.
 ///
 /// Also known as the `TIOCGPGRP` operation with `ioctl`.
+///
+/// On Linux, if `fd` is a pseudo-terminal, the underlying system call here can
+/// return a pid of 0, which rustix's `Pid` type doesn't support. So rustix
+/// instead handles this case by failing with [`io::Errno::OPNOTSUPP`] if the
+/// pid is 0.
 ///
 /// # References
 ///  - [POSIX]
@@ -85,6 +92,7 @@ pub fn tcsetpgrp<Fd: AsFd>(fd: Fd, pid: Pid) -> io::Result<()> {
 /// [POSIX `tcsetattr`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/tcsetattr.html
 /// [Linux `ioctl_tty`]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
 /// [Linux `termios`]: https://man7.org/linux/man-pages/man3/termios.3.html
+#[cfg(not(target_os = "espidf"))]
 #[inline]
 #[doc(alias = "TCSETS")]
 #[doc(alias = "TCSETS2")]
@@ -129,6 +137,7 @@ pub fn tcsendbreak<Fd: AsFd>(fd: Fd) -> io::Result<()> {
 /// [POSIX `tcsetattr`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/tcdrain.html
 /// [Linux `ioctl_tty`]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
 /// [Linux `termios`]: https://man7.org/linux/man-pages/man3/termios.3.html
+#[cfg(not(target_os = "espidf"))]
 #[inline]
 pub fn tcdrain<Fd: AsFd>(fd: Fd) -> io::Result<()> {
     backend::termios::syscalls::tcdrain(fd.as_fd())
@@ -145,6 +154,7 @@ pub fn tcdrain<Fd: AsFd>(fd: Fd) -> io::Result<()> {
 /// [POSIX `tcflush`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/tcflush.html
 /// [Linux `ioctl_tty`]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
 /// [Linux `termios`]: https://man7.org/linux/man-pages/man3/termios.3.html
+#[cfg(not(target_os = "espidf"))]
 #[inline]
 #[doc(alias = "TCFLSH")]
 pub fn tcflush<Fd: AsFd>(fd: Fd, queue_selector: QueueSelector) -> io::Result<()> {
@@ -161,6 +171,7 @@ pub fn tcflush<Fd: AsFd>(fd: Fd, queue_selector: QueueSelector) -> io::Result<()
 /// [POSIX `tcflow`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/tcflow.html
 /// [Linux `ioctl_tty`]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
 /// [Linux `termios`]: https://man7.org/linux/man-pages/man3/termios.3.html
+#[cfg(not(target_os = "espidf"))]
 #[inline]
 #[doc(alias = "TCXONC")]
 pub fn tcflow<Fd: AsFd>(fd: Fd, action: Action) -> io::Result<()> {
@@ -190,6 +201,7 @@ pub fn tcgetsid<Fd: AsFd>(fd: Fd) -> io::Result<Pid> {
 ///  - [Linux]
 ///
 /// [Linux]: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
+#[cfg(not(target_os = "espidf"))]
 #[inline]
 #[doc(alias = "TIOCSWINSZ")]
 pub fn tcsetwinsize<Fd: AsFd>(fd: Fd, winsize: Winsize) -> io::Result<()> {

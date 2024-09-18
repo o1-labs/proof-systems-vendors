@@ -1,51 +1,38 @@
-// Bitcoin secp256k1 bindings
-// Written in 2014 by
-//   Dawid Ciężarkiewicz
-//   Andrew Poelstra
-//
-// To the extent possible under law, the author(s) have dedicated all
-// copyright and related and neighboring rights to this software to
-// the public domain worldwide. This software is distributed without
-// any warranty.
-//
-// You should have received a copy of the CC0 Public Domain Dedication
-// along with this software.
-// If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
-//
+// SPDX-License-Identifier: CC0-1.0
 
 //! Provides a signing function that allows recovering the public key from the
 //! signature.
 //!
 
 use core::ptr;
-use crate::{key, Secp256k1, Message, Error, Verification, Signing, ecdsa::Signature};
-use super::ffi as super_ffi;
+
 use self::super_ffi::CPtr;
+use super::ffi as super_ffi;
+use crate::ecdsa::Signature;
 use crate::ffi::recovery as ffi;
+use crate::{key, Error, Message, Secp256k1, Signing, Verification};
 
 /// A tag used for recovering the public key from a compact signature.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Ord, PartialOrd)]
 pub struct RecoveryId(i32);
 
 /// An ECDSA signature with a recovery ID for pubkey recovery.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]
 pub struct RecoverableSignature(ffi::RecoverableSignature);
 
 impl RecoveryId {
-#[inline]
-/// Allows library users to create valid recovery IDs from i32.
-pub fn from_i32(id: i32) -> Result<RecoveryId, Error> {
-    match id {
-        0..=3 => Ok(RecoveryId(id)),
-        _ => Err(Error::InvalidRecoveryId)
+    #[inline]
+    /// Allows library users to create valid recovery IDs from i32.
+    pub fn from_i32(id: i32) -> Result<RecoveryId, Error> {
+        match id {
+            0..=3 => Ok(RecoveryId(id)),
+            _ => Err(Error::InvalidRecoveryId),
+        }
     }
-}
 
-#[inline]
-/// Allows library users to convert recovery IDs to i32.
-pub fn to_i32(self) -> i32 {
-    self.0
-}
+    #[inline]
+    /// Allows library users to convert recovery IDs to i32.
+    pub fn to_i32(self) -> i32 { self.0 }
 }
 
 impl RecoverableSignature {
@@ -53,7 +40,9 @@ impl RecoverableSignature {
     /// Converts a compact-encoded byte slice to a signature. This
     /// representation is nonstandard and defined by the libsecp256k1 library.
     pub fn from_compact(data: &[u8], recid: RecoveryId) -> Result<RecoverableSignature, Error> {
-        if data.is_empty() {return Err(Error::InvalidSignature);}
+        if data.is_empty() {
+            return Err(Error::InvalidSignature);
+        }
 
         let mut ret = ffi::RecoverableSignature::new();
 
@@ -76,15 +65,16 @@ impl RecoverableSignature {
 
     /// Obtains a raw pointer suitable for use with FFI functions.
     #[inline]
-    pub fn as_ptr(&self) -> *const ffi::RecoverableSignature {
-        &self.0
-    }
+    #[deprecated(since = "0.25.0", note = "Use Self::as_c_ptr if you need to access the FFI layer")]
+    pub fn as_ptr(&self) -> *const ffi::RecoverableSignature { self.as_c_ptr() }
 
     /// Obtains a raw mutable pointer suitable for use with FFI functions.
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::RecoverableSignature {
-        &mut self.0
-    }
+    #[deprecated(
+        since = "0.25.0",
+        note = "Use Self::as_mut_c_ptr if you need to access the FFI layer"
+    )]
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::RecoverableSignature { self.as_mut_c_ptr() }
 
     #[inline]
     /// Serializes the recoverable signature in compact format.
@@ -123,40 +113,25 @@ impl RecoverableSignature {
     /// verify-capable context.
     #[inline]
     #[cfg(feature = "global-context")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "global-context")))]
     pub fn recover(&self, msg: &Message) -> Result<key::PublicKey, Error> {
         crate::SECP256K1.recover_ecdsa(msg, self)
     }
 }
 
-
 impl CPtr for RecoverableSignature {
     type Target = ffi::RecoverableSignature;
-    fn as_c_ptr(&self) -> *const Self::Target {
-        self.as_ptr()
-    }
+    fn as_c_ptr(&self) -> *const Self::Target { &self.0 }
 
-    fn as_mut_c_ptr(&mut self) -> *mut Self::Target {
-        self.as_mut_ptr()
-    }
+    fn as_mut_c_ptr(&mut self) -> *mut Self::Target { &mut self.0 }
 }
 
 /// Creates a new recoverable signature from a FFI one.
 impl From<ffi::RecoverableSignature> for RecoverableSignature {
     #[inline]
-    fn from(sig: ffi::RecoverableSignature) -> RecoverableSignature {
-        RecoverableSignature(sig)
-    }
+    fn from(sig: ffi::RecoverableSignature) -> RecoverableSignature { RecoverableSignature(sig) }
 }
 
 impl<C: Signing> Secp256k1<C> {
-    /// Constructs a signature for `msg` using the secret key `sk` and RFC6979 nonce.
-    /// Requires a signing-capable context.
-    #[deprecated(since = "0.21.0", note = "Use sign_ecdsa_recoverable instead.")]
-    pub fn sign_recoverable(&self, msg: &Message, sk: &key::SecretKey) -> RecoverableSignature {
-        self.sign_ecdsa_recoverable(msg, sk)
-    }
-
     fn sign_ecdsa_recoverable_with_noncedata_pointer(
         &self,
         msg: &Message,
@@ -169,7 +144,7 @@ impl<C: Signing> Secp256k1<C> {
             // an invalid signature from a valid `Message` and `SecretKey`
             assert_eq!(
                 ffi::secp256k1_ecdsa_sign_recoverable(
-                    self.ctx,
+                    self.ctx.as_ptr(),
                     &mut ret,
                     msg.as_c_ptr(),
                     sk.as_c_ptr(),
@@ -185,7 +160,11 @@ impl<C: Signing> Secp256k1<C> {
 
     /// Constructs a signature for `msg` using the secret key `sk` and RFC6979 nonce
     /// Requires a signing-capable context.
-    pub fn sign_ecdsa_recoverable(&self, msg: &Message, sk: &key::SecretKey) -> RecoverableSignature {
+    pub fn sign_ecdsa_recoverable(
+        &self,
+        msg: &Message,
+        sk: &key::SecretKey,
+    ) -> RecoverableSignature {
         self.sign_ecdsa_recoverable_with_noncedata_pointer(msg, sk, ptr::null())
     }
 
@@ -208,20 +187,20 @@ impl<C: Signing> Secp256k1<C> {
 impl<C: Verification> Secp256k1<C> {
     /// Determines the public key for which `sig` is a valid signature for
     /// `msg`. Requires a verify-capable context.
-    #[deprecated(since = "0.21.0", note = "Use recover_ecdsa instead.")]
-    pub fn recover(&self, msg: &Message, sig: &RecoverableSignature) -> Result<key::PublicKey, Error> {
-        self.recover_ecdsa(msg, sig)
-    }
-
-    /// Determines the public key for which `sig` is a valid signature for
-    /// `msg`. Requires a verify-capable context.
-    pub fn recover_ecdsa(&self, msg: &Message, sig: &RecoverableSignature)
-                   -> Result<key::PublicKey, Error> {
-
+    pub fn recover_ecdsa(
+        &self,
+        msg: &Message,
+        sig: &RecoverableSignature,
+    ) -> Result<key::PublicKey, Error> {
         unsafe {
             let mut pk = super_ffi::PublicKey::new();
-            if ffi::secp256k1_ecdsa_recover(self.ctx, &mut pk,
-                                            sig.as_c_ptr(), msg.as_c_ptr()) != 1 {
+            if ffi::secp256k1_ecdsa_recover(
+                self.ctx.as_ptr(),
+                &mut pk,
+                sig.as_c_ptr(),
+                msg.as_c_ptr(),
+            ) != 1
+            {
                 return Err(Error::InvalidSignature);
             }
             Ok(key::PublicKey::from(pk))
@@ -229,31 +208,28 @@ impl<C: Verification> Secp256k1<C> {
     }
 }
 
-
 #[cfg(test)]
 #[allow(unused_imports)]
 mod tests {
-    use rand::{RngCore, thread_rng};
-
-    use crate::{Error, SecretKey, Secp256k1, Message};
-    use super::{RecoveryId, RecoverableSignature};
-
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
+    use super::{RecoverableSignature, RecoveryId};
+    use crate::constants::ONE;
+    use crate::{Error, Message, Secp256k1, SecretKey};
+
     #[test]
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(feature = "rand-std")]
     fn capabilities() {
         let sign = Secp256k1::signing_only();
         let vrfy = Secp256k1::verification_only();
         let full = Secp256k1::new();
 
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
 
         // Try key generation
-        let (sk, pk) = full.generate_keypair(&mut thread_rng());
+        let (sk, pk) = full.generate_keypair(&mut rand::thread_rng());
 
         // Try signing
         assert_eq!(sign.sign_ecdsa_recoverable(&msg, &sk), full.sign_ecdsa_recoverable(&msg, &sk));
@@ -263,8 +239,7 @@ mod tests {
         assert!(vrfy.recover_ecdsa(&msg, &sigr).is_ok());
         assert!(full.recover_ecdsa(&msg, &sigr).is_ok());
 
-        assert_eq!(vrfy.recover_ecdsa(&msg, &sigr),
-                   full.recover_ecdsa(&msg, &sigr));
+        assert_eq!(vrfy.recover_ecdsa(&msg, &sigr), full.recover_ecdsa(&msg, &sigr));
         assert_eq!(full.recover_ecdsa(&msg, &sigr), Ok(pk));
     }
 
@@ -275,18 +250,18 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(fuzzing))]  // fixed sig vectors can't work with fuzz-sigs
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(not(secp256k1_fuzz))]  // fixed sig vectors can't work with fuzz-sigs
+    #[cfg(feature = "rand-std")]
+    #[rustfmt::skip]
     fn sign() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
-        let one: [u8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        s.randomize(&mut rand::thread_rng());
 
-        let sk = SecretKey::from_slice(&one).unwrap();
-        let msg = Message::from_slice(&one).unwrap();
+        let sk = SecretKey::from_slice(&ONE).unwrap();
+        let msg = Message::from_digest_slice(&ONE).unwrap();
 
         let sig = s.sign_ecdsa_recoverable(&msg, &sk);
+
         assert_eq!(Ok(sig), RecoverableSignature::from_compact(&[
             0x66, 0x73, 0xff, 0xad, 0x21, 0x47, 0x74, 0x1f,
             0x04, 0x77, 0x2b, 0x6f, 0x92, 0x1f, 0x0b, 0xa6,
@@ -300,19 +275,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(fuzzing))]  // fixed sig vectors can't work with fuzz-sigs
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(not(secp256k1_fuzz))]  // fixed sig vectors can't work with fuzz-sigs
+    #[cfg(feature = "rand-std")]
+    #[rustfmt::skip]
     fn sign_with_noncedata() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
-        let one: [u8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        s.randomize(&mut rand::thread_rng());
 
-        let sk = SecretKey::from_slice(&one).unwrap();
-        let msg = Message::from_slice(&one).unwrap();
+        let sk = SecretKey::from_slice(&ONE).unwrap();
+        let msg = Message::from_digest_slice(&ONE).unwrap();
         let noncedata = [42u8; 32];
 
         let sig = s.sign_ecdsa_recoverable_with_noncedata(&msg, &sk, &noncedata);
+
         assert_eq!(Ok(sig), RecoverableSignature::from_compact(&[
             0xb5, 0x0b, 0xb6, 0x79, 0x5f, 0x31, 0x74, 0x8a,
             0x4d, 0x37, 0xc3, 0xa9, 0x7e, 0xbd, 0x06, 0xa2,
@@ -326,23 +301,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(feature = "rand-std")]
     fn sign_and_verify_fail() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
+        s.randomize(&mut rand::thread_rng());
 
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
 
-        let (sk, pk) = s.generate_keypair(&mut thread_rng());
+        let (sk, pk) = s.generate_keypair(&mut rand::thread_rng());
 
         let sigr = s.sign_ecdsa_recoverable(&msg, &sk);
         let sig = sigr.to_standard();
 
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
         assert_eq!(s.verify_ecdsa(&msg, &sig, &pk), Err(Error::IncorrectSignature));
 
         let recovered_key = s.recover_ecdsa(&msg, &sigr).unwrap();
@@ -350,16 +323,15 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(feature = "rand-std")]
     fn sign_with_recovery() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
+        s.randomize(&mut rand::thread_rng());
 
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
 
-        let (sk, pk) = s.generate_keypair(&mut thread_rng());
+        let (sk, pk) = s.generate_keypair(&mut rand::thread_rng());
 
         let sig = s.sign_ecdsa_recoverable(&msg, &sk);
 
@@ -367,18 +339,17 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(feature = "rand-std")]
     fn sign_with_recovery_and_noncedata() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
+        s.randomize(&mut rand::thread_rng());
 
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
 
         let noncedata = [42u8; 32];
 
-        let (sk, pk) = s.generate_keypair(&mut thread_rng());
+        let (sk, pk) = s.generate_keypair(&mut rand::thread_rng());
 
         let sig = s.sign_ecdsa_recoverable_with_noncedata(&msg, &sk, &noncedata);
 
@@ -386,12 +357,12 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature="std", feature = "rand-std"))]
+    #[cfg(feature = "rand-std")]
     fn bad_recovery() {
         let mut s = Secp256k1::new();
-        s.randomize(&mut thread_rng());
+        s.randomize(&mut rand::thread_rng());
 
-        let msg = Message::from_slice(&[0x55; 32]).unwrap();
+        let msg = Message::from_digest_slice(&[0x55; 32]).unwrap();
 
         // Zero is not a valid sig
         let sig = RecoverableSignature::from_compact(&[0; 64], RecoveryId(0)).unwrap();
@@ -403,6 +374,7 @@ mod tests {
 
     #[test]
     fn test_debug_output() {
+        #[rustfmt::skip]
         let sig = RecoverableSignature::from_compact(&[
             0x66, 0x73, 0xff, 0xad, 0x21, 0x47, 0x74, 0x1f,
             0x04, 0x77, 0x2b, 0x6f, 0x92, 0x1f, 0x0b, 0xa6,
@@ -419,6 +391,7 @@ mod tests {
     #[test]
     fn test_recov_sig_serialize_compact() {
         let recid_in = RecoveryId(1);
+        #[rustfmt::skip]
         let bytes_in = &[
             0x66, 0x73, 0xff, 0xad, 0x21, 0x47, 0x74, 0x1f,
             0x04, 0x77, 0x2b, 0x6f, 0x92, 0x1f, 0x0b, 0xa6,
@@ -428,10 +401,7 @@ mod tests {
             0x80, 0x12, 0x0e, 0xf8, 0x02, 0x5e, 0x70, 0x9f,
             0xff, 0x20, 0x80, 0xc4, 0xa3, 0x9a, 0xae, 0x06,
             0x8d, 0x12, 0xee, 0xd0, 0x09, 0xb6, 0x8c, 0x89];
-        let sig = RecoverableSignature::from_compact(
-            bytes_in,
-            recid_in,
-        ).unwrap();
+        let sig = RecoverableSignature::from_compact(bytes_in, recid_in).unwrap();
         let (recid_out, bytes_out) = sig.serialize_compact();
         assert_eq!(recid_in, recid_out);
         assert_eq!(&bytes_in[..], &bytes_out[..]);
@@ -453,18 +423,18 @@ mod tests {
 }
 
 #[cfg(bench)]
+#[cfg(feature = "rand-std")] // Currently only a single bench that requires "rand-std".
 mod benches {
-    use rand::{thread_rng, RngCore};
-    use test::{Bencher, black_box};
+    use test::{black_box, Bencher};
+
     use super::{Message, Secp256k1};
 
     #[bench]
     pub fn bench_recover(bh: &mut Bencher) {
         let s = Secp256k1::new();
-        let mut msg = [0u8; 32];
-        thread_rng().fill_bytes(&mut msg);
-        let msg = Message::from_slice(&msg).unwrap();
-        let (sk, _) = s.generate_keypair(&mut thread_rng());
+        let msg = crate::random_32_bytes(&mut rand::thread_rng());
+        let msg = Message::from_digest_slice(&msg).unwrap();
+        let (sk, _) = s.generate_keypair(&mut rand::thread_rng());
         let sig = s.sign_ecdsa_recoverable(&msg, &sk);
 
         bh.iter(|| {

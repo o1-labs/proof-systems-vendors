@@ -11,8 +11,10 @@ use crate::{backend, io};
 #[cfg(not(any(
     solarish,
     windows,
+    target_os = "espidf",
     target_os = "haiku",
     target_os = "redox",
+    target_os = "vita",
     target_os = "wasi",
 )))]
 use backend::c;
@@ -36,8 +38,11 @@ pub use backend::pipe::types::{IoSliceRaw, SpliceFlags};
 #[cfg(not(any(
     solarish,
     windows,
+    target_os = "espidf",
     target_os = "haiku",
+    target_os = "hurd",
     target_os = "redox",
+    target_os = "vita",
     target_os = "wasi",
 )))]
 pub const PIPE_BUF: usize = c::PIPE_BUF;
@@ -91,27 +96,33 @@ pub fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
 /// [OpenBSD]: https://man.openbsd.org/pipe2.2
 /// [DragonFly BSD]: https://man.dragonflybsd.org/?command=pipe2&section=2
 /// [illumos]: https://illumos.org/man/2/pipe2
-#[cfg(not(any(apple, target_os = "aix", target_os = "haiku")))]
+#[cfg(not(any(
+    apple,
+    target_os = "aix",
+    target_os = "espidf",
+    target_os = "haiku",
+    target_os = "nto"
+)))]
 #[inline]
 #[doc(alias = "pipe2")]
 pub fn pipe_with(flags: PipeFlags) -> io::Result<(OwnedFd, OwnedFd)> {
     backend::pipe::syscalls::pipe_with(flags)
 }
 
-/// `splice(fd_in, off_in, fd_out, off_out, len, flags)`—Transfer data between
-/// a file and a pipe.
+/// `splice(fd_in, off_in, fd_out, off_out, len, flags)`—Transfer data
+/// between a file and a pipe.
 ///
 /// This function transfers up to `len` bytes of data from the file descriptor
 /// `fd_in` to the file descriptor `fd_out`, where one of the file descriptors
 /// must refer to a pipe.
 ///
-/// `off_*` must be `None` if the corresponding fd refers to a pipe.
-/// Otherwise its value points to the starting offset to the file,
-/// from which the data is read/written.
-/// on success the number of bytes read/written is added to the offset.
+/// `off_*` must be `None` if the corresponding fd refers to a pipe. Otherwise
+/// its value points to the starting offset to the file, from which the data is
+/// read/written. On success, the number of bytes read/written is added to the
+/// offset.
 ///
-/// passing `None` causes the read/write to start from the file offset,
-/// and the file offset is adjusted appropriately.
+/// Passing `None` causes the read/write to start from the file offset, and the
+/// file offset is adjusted appropriately.
 ///
 /// # References
 ///  - [Linux]
@@ -132,11 +143,11 @@ pub fn splice<FdIn: AsFd, FdOut: AsFd>(
 
 /// `vmsplice(fd, bufs, flags)`—Transfer data between memory and a pipe.
 ///
-/// If `fd` is the write end of the pipe,
-/// the function maps the memory pointer at by `bufs` to the pipe.
+/// If `fd` is the write end of the pipe, the function maps the memory pointer
+/// at by `bufs` to the pipe.
 ///
-/// If `fd` is the read end of the pipe,
-/// the function writes data from the pipe to said memory.
+/// If `fd` is the read end of the pipe, the function writes data from the pipe
+/// to said memory.
 ///
 /// # Safety
 ///
@@ -145,9 +156,9 @@ pub fn splice<FdIn: AsFd, FdOut: AsFd>(
 /// the pipe is placed in `fd`.
 ///
 /// Additionally if `SpliceFlags::GIFT` is set, the caller must also ensure
-/// that the contents of `bufs` in never modified following the call,
-/// and that all of the pointers in `bufs` are page aligned,
-/// and the lengths are multiples of a page size in bytes.
+/// that the contents of `bufs` in never modified following the call, and that
+/// all of the pointers in `bufs` are page aligned, and the lengths are
+/// multiples of a page size in bytes.
 ///
 /// # References
 ///  - [Linux]
@@ -157,7 +168,7 @@ pub fn splice<FdIn: AsFd, FdOut: AsFd>(
 #[inline]
 pub unsafe fn vmsplice<PipeFd: AsFd>(
     fd: PipeFd,
-    bufs: &[IoSliceRaw],
+    bufs: &[IoSliceRaw<'_>],
     flags: SpliceFlags,
 ) -> io::Result<usize> {
     backend::pipe::syscalls::vmsplice(fd.as_fd(), bufs, flags)
@@ -184,7 +195,7 @@ pub fn tee<FdIn: AsFd, FdOut: AsFd>(
     backend::pipe::syscalls::tee(fd_in.as_fd(), fd_out.as_fd(), len, flags)
 }
 
-/// `ioctl(fd, F_GETPIPE_SZ)`—Return the buffer capacity of a pipe.
+/// `fnctl(fd, F_GETPIPE_SZ)`—Return the buffer capacity of a pipe.
 ///
 /// # References
 ///  - [Linux]
@@ -196,7 +207,7 @@ pub fn fcntl_getpipe_size<Fd: AsFd>(fd: Fd) -> io::Result<usize> {
     backend::pipe::syscalls::fcntl_getpipe_sz(fd.as_fd())
 }
 
-/// `ioctl(fd, F_SETPIPE_SZ)`—Set the buffer capacity of a pipe.
+/// `fnctl(fd, F_SETPIPE_SZ)`—Set the buffer capacity of a pipe.
 ///
 /// # References
 ///  - [Linux]

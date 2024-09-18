@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: CC0-1.0
+
 //! Implements [`SerializedSignature`] and related types.
 //!
 //! DER-serialized signatures have the issue that they can have different lengths.
@@ -5,11 +7,14 @@
 //! unable to run on platforms without allocator. We implement a special type to encapsulate
 //! serialized signatures and since it's a bit more complicated it has its own module.
 
+use core::borrow::Borrow;
+use core::convert::TryFrom;
+use core::{fmt, ops};
+
 pub use into_iter::IntoIter;
 
-use core::{fmt, ops};
-use crate::Error;
 use super::Signature;
+use crate::Error;
 
 pub(crate) const MAX_LEN: usize = 72;
 
@@ -21,9 +26,7 @@ pub struct SerializedSignature {
 }
 
 impl fmt::Debug for SerializedSignature {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
 }
 
 impl fmt::Display for SerializedSignature {
@@ -37,25 +40,60 @@ impl fmt::Display for SerializedSignature {
 
 impl PartialEq for SerializedSignature {
     #[inline]
-    fn eq(&self, other: &SerializedSignature) -> bool {
-        **self == **other
+    fn eq(&self, other: &SerializedSignature) -> bool { **self == **other }
+}
+
+impl PartialEq<[u8]> for SerializedSignature {
+    #[inline]
+    fn eq(&self, other: &[u8]) -> bool { **self == *other }
+}
+
+impl PartialEq<SerializedSignature> for [u8] {
+    #[inline]
+    fn eq(&self, other: &SerializedSignature) -> bool { *self == **other }
+}
+
+impl PartialOrd for SerializedSignature {
+    fn partial_cmp(&self, other: &SerializedSignature) -> Option<core::cmp::Ordering> {
+        Some((**self).cmp(&**other))
     }
+}
+
+impl Ord for SerializedSignature {
+    fn cmp(&self, other: &SerializedSignature) -> core::cmp::Ordering { (**self).cmp(&**other) }
+}
+
+impl PartialOrd<[u8]> for SerializedSignature {
+    fn partial_cmp(&self, other: &[u8]) -> Option<core::cmp::Ordering> {
+        (**self).partial_cmp(other)
+    }
+}
+
+impl PartialOrd<SerializedSignature> for [u8] {
+    fn partial_cmp(&self, other: &SerializedSignature) -> Option<core::cmp::Ordering> {
+        self.partial_cmp(&**other)
+    }
+}
+
+impl core::hash::Hash for SerializedSignature {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) { (**self).hash(state) }
 }
 
 impl AsRef<[u8]> for SerializedSignature {
     #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self
-    }
+    fn as_ref(&self) -> &[u8] { self }
+}
+
+impl Borrow<[u8]> for SerializedSignature {
+    #[inline]
+    fn borrow(&self) -> &[u8] { self }
 }
 
 impl ops::Deref for SerializedSignature {
     type Target = [u8];
 
     #[inline]
-    fn deref(&self) -> &[u8] {
-        &self.data[..self.len]
-    }
+    fn deref(&self) -> &[u8] { &self.data[..self.len] }
 }
 
 impl Eq for SerializedSignature {}
@@ -65,9 +103,7 @@ impl IntoIterator for SerializedSignature {
     type Item = u8;
 
     #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter::new(self)
-    }
+    fn into_iter(self) -> Self::IntoIter { IntoIter::new(self) }
 }
 
 impl<'a> IntoIterator for &'a SerializedSignature {
@@ -75,8 +111,28 @@ impl<'a> IntoIterator for &'a SerializedSignature {
     type Item = &'a u8;
 
     #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
+
+impl From<Signature> for SerializedSignature {
+    fn from(value: Signature) -> Self { Self::from_signature(&value) }
+}
+
+impl<'a> From<&'a Signature> for SerializedSignature {
+    fn from(value: &'a Signature) -> Self { Self::from_signature(value) }
+}
+
+impl TryFrom<SerializedSignature> for Signature {
+    type Error = Error;
+
+    fn try_from(value: SerializedSignature) -> Result<Self, Self::Error> { value.to_signature() }
+}
+
+impl<'a> TryFrom<&'a SerializedSignature> for Signature {
+    type Error = Error;
+
+    fn try_from(value: &'a SerializedSignature) -> Result<Self, Self::Error> {
+        value.to_signature()
     }
 }
 
@@ -89,45 +145,34 @@ impl SerializedSignature {
     #[inline]
     pub(crate) fn from_raw_parts(data: [u8; MAX_LEN], len: usize) -> Self {
         assert!(len <= MAX_LEN, "attempt to set length to {} but the maximum is {}", len, MAX_LEN);
-        SerializedSignature {
-            data,
-            len,
-        }
+        SerializedSignature { data, len }
     }
 
     /// Get the capacity of the underlying data buffer.
+    #[deprecated = "This always returns 72"]
     #[inline]
-    pub fn capacity(&self) -> usize {
-        self.data.len()
-    }
+    pub fn capacity(&self) -> usize { self.data.len() }
 
     /// Get the len of the used data.
     #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
+    pub fn len(&self) -> usize { self.len }
 
     /// Set the length of the object.
     #[inline]
-    pub(crate) fn set_len_unchecked(&mut self, len: usize) {
-        self.len = len;
-    }
+    pub(crate) fn set_len_unchecked(&mut self, len: usize) { self.len = len; }
 
     /// Convert the serialized signature into the Signature struct.
     /// (This DER deserializes it)
     #[inline]
-    pub fn to_signature(&self) -> Result<Signature, Error> {
-        Signature::from_der(self)
-    }
+    pub fn to_signature(&self) -> Result<Signature, Error> { Signature::from_der(self) }
 
     /// Create a SerializedSignature from a Signature.
     /// (this DER serializes it)
     #[inline]
-    pub fn from_signature(sig: &Signature) -> SerializedSignature {
-        sig.serialize_der()
-    }
+    pub fn from_signature(sig: &Signature) -> SerializedSignature { sig.serialize_der() }
 
     /// Check if the space is zero.
+    #[deprecated = "This always returns false"]
     #[inline]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
@@ -162,9 +207,7 @@ mod into_iter {
         ///
         /// This method is analogous to [`core::slice::Iter::as_slice`].
         #[inline]
-        pub fn as_slice(&self) -> &[u8] {
-            &self.signature[self.pos..]
-        }
+        pub fn as_slice(&self) -> &[u8] { &self.signature[self.pos..] }
     }
 
     impl Iterator for IntoIter {
@@ -229,10 +272,8 @@ mod tests {
     #[test]
     fn iterator_ops_are_homomorphic() {
         let mut fake_signature_data = [0; MAX_LEN];
-        // fill it with numbers 0 - 71
         for (i, byte) in fake_signature_data.iter_mut().enumerate() {
-            // up to MAX_LEN
-            *byte = i as u8;
+            *byte = i as u8; // cast ok because MAX_LEN fits in  u8.
         }
 
         let fake_signature = SerializedSignature { data: fake_signature_data, len: MAX_LEN };
