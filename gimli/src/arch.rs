@@ -44,7 +44,8 @@ macro_rules! registers {
 
 /// ARM architecture specific definitions.
 ///
-/// See [DWARF for the ARM Architecture](https://developer.arm.com/documentation/ihi0040/c/).
+/// See [DWARF for the ARM Architecture](
+/// https://github.com/ARM-software/abi-aa/blob/main/aadwarf32/aadwarf32.rst).
 #[derive(Debug, Clone, Copy)]
 pub struct Arm;
 
@@ -98,6 +99,8 @@ registers!(Arm, {
     SPSR_ABT = (131, "SPSR_ABT"),
     SPSR_UND = (132, "SPSR_UND"),
     SPSR_SVC = (133, "SPSR_SVC"),
+
+    RA_AUTH_CODE = (143, "RA_AUTH_CODE"),
 
     R8_USR = (144, "R8_USR"),
     R9_USR = (145, "R9_USR"),
@@ -168,6 +171,11 @@ registers!(Arm, {
     D29 = (285, "D29"),
     D30 = (286, "D30"),
     D31 = (287, "D31"),
+
+    TPIDRURO = (320, "TPIDRURO"),
+    TPIDRURW = (321, "TPIDRURW"),
+    TPIDPR = (322, "TPIDPR"),
+    HTPIDPR = (323, "HTPIDPR"),
 },
 aliases {
     SP = (13, "SP"),
@@ -219,7 +227,8 @@ aliases {
 
 /// ARM 64-bit (AArch64) architecture specific definitions.
 ///
-/// See [DWARF for the ARM 64-bit Architecture](https://developer.arm.com/documentation/ihi0057/b/).
+/// See [DWARF for the ARM 64-bit Architecture](
+/// https://github.com/ARM-software/abi-aa/blob/main/aadwarf64/aadwarf64.rst).
 #[derive(Debug, Clone, Copy)]
 pub struct AArch64;
 
@@ -256,6 +265,34 @@ registers!(AArch64, {
     X29 = (29, "X29"),
     X30 = (30, "X30"),
     SP = (31, "SP"),
+    PC = (32, "PC"),
+    ELR_MODE = (33, "ELR_mode"),
+    RA_SIGN_STATE = (34, "RA_SIGN_STATE"),
+    TPIDRRO_EL0 = (35, "TPIDRRO_EL0"),
+    TPIDR_EL0 = (36, "TPIDR_EL0"),
+    TPIDR_EL1 = (37, "TPIDR_EL1"),
+    TPIDR_EL2 = (38, "TPIDR_EL2"),
+    TPIDR_EL3 = (39, "TPIDR_EL3"),
+
+    VG = (46, "VG"),
+    FFR = (47, "FFR"),
+
+    P0 = (48, "P0"),
+    P1 = (49, "P1"),
+    P2 = (50, "P2"),
+    P3 = (51, "P3"),
+    P4 = (52, "P4"),
+    P5 = (53, "P5"),
+    P6 = (54, "P6"),
+    P7 = (55, "P7"),
+    P8 = (56, "P8"),
+    P9 = (57, "P9"),
+    P10 = (58, "P10"),
+    P11 = (59, "P11"),
+    P12 = (60, "P12"),
+    P13 = (61, "P13"),
+    P14 = (62, "P14"),
+    P15 = (63, "P15"),
 
     V0 = (64, "V0"),
     V1 = (65, "V1"),
@@ -289,6 +326,39 @@ registers!(AArch64, {
     V29 = (93, "V29"),
     V30 = (94, "V30"),
     V31 = (95, "V31"),
+
+    Z0 = (96, "Z0"),
+    Z1 = (97, "Z1"),
+    Z2 = (98, "Z2"),
+    Z3 = (99, "Z3"),
+    Z4 = (100, "Z4"),
+    Z5 = (101, "Z5"),
+    Z6 = (102, "Z6"),
+    Z7 = (103, "Z7"),
+    Z8 = (104, "Z8"),
+    Z9 = (105, "Z9"),
+    Z10 = (106, "Z10"),
+    Z11 = (107, "Z11"),
+    Z12 = (108, "Z12"),
+    Z13 = (109, "Z13"),
+    Z14 = (110, "Z14"),
+    Z15 = (111, "Z15"),
+    Z16 = (112, "Z16"),
+    Z17 = (113, "Z17"),
+    Z18 = (114, "Z18"),
+    Z19 = (115, "Z19"),
+    Z20 = (116, "Z20"),
+    Z21 = (117, "Z21"),
+    Z22 = (118, "Z22"),
+    Z23 = (119, "Z23"),
+    Z24 = (120, "Z24"),
+    Z25 = (121, "Z25"),
+    Z26 = (122, "Z26"),
+    Z27 = (123, "Z27"),
+    Z28 = (124, "Z28"),
+    Z29 = (125, "Z29"),
+    Z30 = (126, "Z30"),
+    Z31 = (127, "Z31"),
 });
 
 /// LoongArch architecture specific definitions.
@@ -749,3 +819,21 @@ registers!(X86_64, {
     K6 = (124, "k6"),
     K7 = (125, "k7"),
 });
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_aarch64_registers() {
+        use super::*;
+        use std::collections::HashSet;
+
+        let mut names = HashSet::new();
+        for n in (0..=39).chain(46..=127) {
+            let name = AArch64::register_name(Register(n))
+                .unwrap_or_else(|| panic!("Register {} should have a name.", n));
+            assert!(names.insert(name));
+        }
+    }
+}

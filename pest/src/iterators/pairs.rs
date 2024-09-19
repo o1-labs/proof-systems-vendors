@@ -114,6 +114,40 @@ impl<'i, R: RuleType> Pairs<'i, R> {
         }
     }
 
+    /// Returns the input string of `Pairs`.
+    ///
+    /// This function returns the input string of `Pairs` as a `&str`. This is the source string
+    /// from which `Pairs` was created. The returned `&str` can be used to examine the contents of
+    /// `Pairs` or to perform further processing on the string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::rc::Rc;
+    /// # use pest;
+    /// # #[allow(non_camel_case_types)]
+    /// # #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    /// enum Rule {
+    ///     a,
+    ///     b
+    /// }
+    ///
+    /// // Example: Get input string from Pairs
+    ///
+    /// let input = "a b";
+    /// let pairs = pest::state(input, |state| {
+    ///     // generating Token pairs with Rule::a and Rule::b ...
+    /// #     state.rule(Rule::a, |s| s.match_string("a")).and_then(|s| s.skip(1))
+    /// #         .and_then(|s| s.rule(Rule::b, |s| s.match_string("b")))
+    /// }).unwrap();
+    ///
+    /// assert_eq!(pairs.as_str(), "a b");
+    /// assert_eq!(input, pairs.get_input());
+    /// ```
+    pub fn get_input(&self) -> &'i str {
+        self.input
+    }
+
     /// Captures inner token `Pair`s and concatenates resulting `&str`s. This does not capture
     /// the input between token `Pair`s.
     ///
@@ -175,7 +209,7 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     }
 
     /// Finds the first pair that has its node or branch tagged with the provided
-    /// label.
+    /// label. Searches in the flattened [`Pairs`] iterator.
     ///
     /// # Examples
     ///
@@ -193,9 +227,9 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     ///     state: Box<ParserState<'_, Rule>>,
     /// ) -> ParseResult<Box<ParserState<'_, Rule>>> {
     ///     expr(state, Rule::mul, "*")
-    ///         .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("mul")))
+    ///         .and_then(|state| state.tag_node("mul"))
     ///         .or_else(|state| expr(state, Rule::add, "+"))
-    ///         .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("add")))
+    ///         .and_then(|state| state.tag_node("add"))
     /// }
     /// fn expr<'a>(
     ///     state: Box<ParserState<'a, Rule>>,
@@ -205,10 +239,10 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     ///     state.rule(r, |state| {
     ///         state.sequence(|state| {
     ///             number(state)
-    ///                 .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("lhs")))
+    ///                 .and_then(|state| state.tag_node("lhs"))
     ///                 .and_then(|state| state.match_string(o))
     ///                 .and_then(number)
-    ///                 .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("rhs")))
+    ///                 .and_then(|state| state.tag_node("rhs"))
     ///         })
     ///     })
     /// }
@@ -226,7 +260,7 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     }
 
     /// Returns the iterator over pairs that have their node or branch tagged
-    /// with the provided label.
+    /// with the provided label. The iterator is built from a flattened [`Pairs`] iterator.
     ///
     /// # Examples
     ///
@@ -244,9 +278,9 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     ///     state: Box<ParserState<'_, Rule>>,
     /// ) -> ParseResult<Box<ParserState<'_, Rule>>> {
     ///     expr(state, Rule::mul, "*")
-    ///         .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("mul")))
+    ///         .and_then(|state| state.tag_node("mul"))
     ///         .or_else(|state| expr(state, Rule::add, "+"))
-    ///         .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("add")))
+    ///         .and_then(|state| state.tag_node("add"))
     /// }
     /// fn expr<'a>(
     ///     state: Box<ParserState<'a, Rule>>,
@@ -256,10 +290,10 @@ impl<'i, R: RuleType> Pairs<'i, R> {
     ///     state.rule(r, |state| {
     ///         state.sequence(|state| {
     ///             number(state)
-    ///                 .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("lhs")))
+    ///                 .and_then(|state| state.tag_node("lhs"))
     ///                 .and_then(|state| state.match_string(o))
     ///                 .and_then(number)
-    ///                 .and_then(|state| state.tag_node(std::borrow::Cow::Borrowed("rhs")))
+    ///                 .and_then(|state| state.tag_node("rhs"))
     ///         })
     ///     })
     /// }
@@ -528,6 +562,14 @@ mod tests {
     }
 
     #[test]
+    fn get_input_of_pairs() {
+        let input = "abcde";
+        let pairs = AbcParser::parse(Rule::a, input).unwrap();
+
+        assert_eq!(pairs.get_input(), input);
+    }
+
+    #[test]
     fn as_str_empty() {
         let mut pairs = AbcParser::parse(Rule::a, "abcde").unwrap();
 
@@ -619,6 +661,8 @@ mod tests {
     }
 
     #[test]
+    // false positive: pest uses `..` as a complete range (historically)
+    #[allow(clippy::almost_complete_range)]
     fn test_tag_node_branch() {
         use crate::{state, ParseResult, ParserState};
         #[allow(non_camel_case_types)]
@@ -632,9 +676,9 @@ mod tests {
             state: Box<ParserState<'_, Rule>>,
         ) -> ParseResult<Box<ParserState<'_, Rule>>> {
             expr(state, Rule::mul, "*")
-                .and_then(|state| state.tag_node(alloc::borrow::Cow::Borrowed("mul")))
+                .and_then(|state| state.tag_node("mul"))
                 .or_else(|state| expr(state, Rule::add, "+"))
-                .and_then(|state| state.tag_node(alloc::borrow::Cow::Borrowed("add")))
+                .and_then(|state| state.tag_node("add"))
         }
         fn expr<'a>(
             state: Box<ParserState<'a, Rule>>,
@@ -644,10 +688,10 @@ mod tests {
             state.rule(r, |state| {
                 state.sequence(|state| {
                     number(state)
-                        .and_then(|state| state.tag_node(alloc::borrow::Cow::Borrowed("lhs")))
+                        .and_then(|state| state.tag_node("lhs"))
                         .and_then(|state| state.match_string(o))
                         .and_then(number)
-                        .and_then(|state| state.tag_node(alloc::borrow::Cow::Borrowed("rhs")))
+                        .and_then(|state| state.tag_node("rhs"))
                 })
             })
         }

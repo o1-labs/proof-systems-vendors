@@ -9,10 +9,10 @@
 //! # Examples
 //!
 //! Computing the column minima of an *m* ✕ *n* Monge matrix can be
-//! done efficiently with `smawk_column_minima`:
+//! done efficiently with `smawk::column_minima`:
 //!
 //! ```
-//! use smawk::{Matrix, smawk_column_minima};
+//! use smawk::Matrix;
 //!
 //! let matrix = vec![
 //!     vec![3, 2, 4, 5, 6],
@@ -22,7 +22,7 @@
 //!     vec![4, 3, 2, 1, 1],
 //! ];
 //! let minima = vec![1, 1, 4, 4, 4];
-//! assert_eq!(smawk_column_minima(&matrix), minima);
+//! assert_eq!(smawk::column_minima(&matrix), minima);
 //! ```
 //!
 //! The `minima` vector gives the index of the minimum value per
@@ -86,7 +86,10 @@
 //! unknown inputs, it can use [`monge::is_monge`] to verify that a
 //! matrix is a Monge matrix.
 
-#![doc(html_root_url = "https://docs.rs/smawk/0.3.1")]
+#![doc(html_root_url = "https://docs.rs/smawk/0.3.2")]
+// The s! macro from ndarray uses unsafe internally, so we can only
+// forbid unsafe code when building with the default features.
+#![cfg_attr(not(feature = "ndarray"), forbid(unsafe_code))]
 
 #[cfg(feature = "ndarray")]
 pub mod brute_force;
@@ -152,22 +155,34 @@ impl<T: Copy> Matrix<T> for ndarray::Array2<T> {
 
 /// Compute row minima in O(*m* + *n*) time.
 ///
-/// This implements the SMAWK algorithm for finding row minima in a
-/// totally monotone matrix.
+/// This implements the [SMAWK algorithm] for efficiently finding row
+/// minima in a totally monotone matrix.
 ///
 /// The SMAWK algorithm is from Agarwal, Klawe, Moran, Shor, and
 /// Wilbur, *Geometric applications of a matrix searching algorithm*,
 /// Algorithmica 2, pp. 195-208 (1987) and the code here is a
 /// translation [David Eppstein's Python code][pads].
 ///
-/// [pads]: https://github.com/jfinkels/PADS/blob/master/pads/smawk.py
-///
 /// Running time on an *m* ✕ *n* matrix: O(*m* + *n*).
+///
+/// # Examples
+///
+/// ```
+/// use smawk::Matrix;
+/// let matrix = vec![vec![4, 2, 4, 3],
+///                   vec![5, 3, 5, 3],
+///                   vec![5, 3, 3, 1]];
+/// assert_eq!(smawk::row_minima(&matrix),
+///            vec![1, 1, 3]);
+/// ```
 ///
 /// # Panics
 ///
 /// It is an error to call this on a matrix with zero columns.
-pub fn smawk_row_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
+///
+/// [pads]: https://github.com/jfinkels/PADS/blob/master/pads/smawk.py
+/// [SMAWK algorithm]: https://en.wikipedia.org/wiki/SMAWK_algorithm
+pub fn row_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
     // Benchmarking shows that SMAWK performs roughly the same on row-
     // and column-major matrices.
     let mut minima = vec![0; matrix.nrows()];
@@ -180,24 +195,41 @@ pub fn smawk_row_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<u
     minima
 }
 
+#[deprecated(since = "0.3.2", note = "Please use `row_minima` instead.")]
+pub fn smawk_row_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
+    row_minima(matrix)
+}
+
 /// Compute column minima in O(*m* + *n*) time.
 ///
-/// This implements the SMAWK algorithm for finding column minima in a
-/// totally monotone matrix.
+/// This implements the [SMAWK algorithm] for efficiently finding
+/// column minima in a totally monotone matrix.
 ///
 /// The SMAWK algorithm is from Agarwal, Klawe, Moran, Shor, and
 /// Wilbur, *Geometric applications of a matrix searching algorithm*,
 /// Algorithmica 2, pp. 195-208 (1987) and the code here is a
 /// translation [David Eppstein's Python code][pads].
 ///
-/// [pads]: https://github.com/jfinkels/PADS/blob/master/pads/smawk.py
-///
 /// Running time on an *m* ✕ *n* matrix: O(*m* + *n*).
+///
+/// # Examples
+///
+/// ```
+/// use smawk::Matrix;
+/// let matrix = vec![vec![4, 2, 4, 3],
+///                   vec![5, 3, 5, 3],
+///                   vec![5, 3, 3, 1]];
+/// assert_eq!(smawk::column_minima(&matrix),
+///            vec![0, 0, 2, 2]);
+/// ```
 ///
 /// # Panics
 ///
 /// It is an error to call this on a matrix with zero rows.
-pub fn smawk_column_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
+///
+/// [SMAWK algorithm]: https://en.wikipedia.org/wiki/SMAWK_algorithm
+/// [pads]: https://github.com/jfinkels/PADS/blob/master/pads/smawk.py
+pub fn column_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
     let mut minima = vec![0; matrix.ncols()];
     smawk_inner(
         &|i, j| matrix.index(i, j),
@@ -208,13 +240,18 @@ pub fn smawk_column_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Ve
     minima
 }
 
+#[deprecated(since = "0.3.2", note = "Please use `column_minima` instead.")]
+pub fn smawk_column_minima<T: PartialOrd + Copy, M: Matrix<T>>(matrix: &M) -> Vec<usize> {
+    column_minima(matrix)
+}
+
 /// Compute column minima in the given area of the matrix. The
 /// `minima` slice is updated inplace.
 fn smawk_inner<T: PartialOrd + Copy, M: Fn(usize, usize) -> T>(
     matrix: &M,
     rows: &[usize],
     cols: &[usize],
-    mut minima: &mut [usize],
+    minima: &mut [usize],
 ) {
     if cols.is_empty() {
         return;
@@ -242,7 +279,7 @@ fn smawk_inner<T: PartialOrd + Copy, M: Fn(usize, usize) -> T>(
         }
     }
 
-    smawk_inner(matrix, rows, &odd_cols, &mut minima);
+    smawk_inner(matrix, rows, &odd_cols, minima);
 
     let mut r = 0;
     for (c, &col) in cols.iter().enumerate().filter(|(c, _)| c % 2 == 0) {
@@ -388,8 +425,8 @@ mod tests {
     #[test]
     fn smawk_1x1() {
         let matrix = vec![vec![2]];
-        assert_eq!(smawk_row_minima(&matrix), vec![0]);
-        assert_eq!(smawk_column_minima(&matrix), vec![0]);
+        assert_eq!(row_minima(&matrix), vec![0]);
+        assert_eq!(column_minima(&matrix), vec![0]);
     }
 
     #[test]
@@ -398,15 +435,15 @@ mod tests {
             vec![3], //
             vec![2],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![0, 0]);
-        assert_eq!(smawk_column_minima(&matrix), vec![1]);
+        assert_eq!(row_minima(&matrix), vec![0, 0]);
+        assert_eq!(column_minima(&matrix), vec![1]);
     }
 
     #[test]
     fn smawk_1x2() {
         let matrix = vec![vec![2, 1]];
-        assert_eq!(smawk_row_minima(&matrix), vec![1]);
-        assert_eq!(smawk_column_minima(&matrix), vec![0, 0]);
+        assert_eq!(row_minima(&matrix), vec![1]);
+        assert_eq!(column_minima(&matrix), vec![0, 0]);
     }
 
     #[test]
@@ -415,8 +452,8 @@ mod tests {
             vec![3, 2], //
             vec![2, 1],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![1, 1]);
-        assert_eq!(smawk_column_minima(&matrix), vec![1, 1]);
+        assert_eq!(row_minima(&matrix), vec![1, 1]);
+        assert_eq!(column_minima(&matrix), vec![1, 1]);
     }
 
     #[test]
@@ -426,8 +463,8 @@ mod tests {
             vec![3, 4, 4],
             vec![2, 3, 3],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![0, 0, 0]);
-        assert_eq!(smawk_column_minima(&matrix), vec![2, 2, 2]);
+        assert_eq!(row_minima(&matrix), vec![0, 0, 0]);
+        assert_eq!(column_minima(&matrix), vec![2, 2, 2]);
     }
 
     #[test]
@@ -438,8 +475,8 @@ mod tests {
             vec![2, 3, 3, 3],
             vec![2, 2, 2, 2],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![0, 0, 0, 0]);
-        assert_eq!(smawk_column_minima(&matrix), vec![1, 3, 3, 3]);
+        assert_eq!(row_minima(&matrix), vec![0, 0, 0, 0]);
+        assert_eq!(column_minima(&matrix), vec![1, 3, 3, 3]);
     }
 
     #[test]
@@ -451,8 +488,8 @@ mod tests {
             vec![3, 2, 4, 3, 4],
             vec![4, 3, 2, 1, 1],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![1, 1, 1, 1, 3]);
-        assert_eq!(smawk_column_minima(&matrix), vec![1, 1, 4, 4, 4]);
+        assert_eq!(row_minima(&matrix), vec![1, 1, 1, 1, 3]);
+        assert_eq!(column_minima(&matrix), vec![1, 1, 4, 4, 4]);
     }
 
     #[test]
@@ -514,8 +551,8 @@ mod tests {
             vec![3.0, 2.0], //
             vec![2.0, 1.0],
         ];
-        assert_eq!(smawk_row_minima(&matrix), vec![1, 1]);
-        assert_eq!(smawk_column_minima(&matrix), vec![1, 1]);
+        assert_eq!(row_minima(&matrix), vec![1, 1]);
+        assert_eq!(column_minima(&matrix), vec![1, 1]);
     }
 
     #[test]
@@ -525,7 +562,9 @@ mod tests {
             vec![0.0, 0.0],
         ];
         let minima = vec![(0, 0.0), (0, 2.0)];
-        assert_eq!(online_column_minima(0.0, 2, |_, i:usize, j:usize| matrix[i][j]), minima);
+        assert_eq!(
+            online_column_minima(0.0, 2, |_, i: usize, j: usize| matrix[i][j]),
+            minima
+        );
     }
-
 }

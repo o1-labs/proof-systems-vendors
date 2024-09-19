@@ -1,3 +1,29 @@
+# 0.9.2 - 2023-12-18
+
+* Fix incorrect FFI binding for `secp256k1_pubkey_combine`
+
+# 0.9.1 - 2023-12-07
+
+* Patch out any instances of printf in upstream [#663](https://github.com/rust-bitcoin/rust-secp256k1/pull/663)
+
+# 0.9.0 - 2023-10-23
+
+* Add bindings to the ElligatorSwift implementation [#627](https://github.com/rust-bitcoin/rust-secp256k1/pull/627)
+* Update vendored lib secp256k1 to v0.4.0 [#653](https://github.com/rust-bitcoin/rust-secp256k1/pull/653)
+* Bump MSRV to 1.48 [#595](https://github.com/rust-bitcoin/rust-secp256k1/pull/595)
+
+# 0.8.1 - 2023-03-16
+
+* [Implement `insecure-erase`](https://github.com/rust-bitcoin/rust-secp256k1/pull/582).
+
+# 0.8.0 - 2202-12-19
+
+* Update libsecp25k1 to v0.2.0
+
+# 0.7.0 - 2022-12-01
+
+* [Make comparison functions stable across library versions](https://github.com/rust-bitcoin/rust-secp256k1/pull/518)
+* Add public methods `cmp_fast_unstable` and `eq_fast_unstable` for types that contain an inner array (see PR linked above).
 
 # 0.6.0 - 2022-06-21
 

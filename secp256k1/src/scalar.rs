@@ -1,11 +1,16 @@
+// SPDX-License-Identifier: CC0-1.0
+
 //! Provides [`Scalar`] and related types.
 //!
 //! In elliptic curve cryptography scalars are non-point values that can be used to multiply
 //! points. The most common type of scalars are private keys. However not all scalars are private
 //! keys. They can even be public *values*. To make handling them safer and easier this module
 //! provides the `Scalar` type and related.
+//!
 
-use core::fmt;
+use core::{fmt, ops};
+
+use crate::constants;
 
 /// Positive 256-bit integer guaranteed to be less than the secp256k1 curve order.
 ///
@@ -17,33 +22,30 @@ use core::fmt;
 // Internal represenation is big endian to match what `libsecp256k1` uses.
 // Also easier to implement comparison.
 // Debug impl omitted for now, the bytes may be secret
-#[allow(missing_debug_implementations)]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Scalar([u8; 32]);
+impl_pretty_debug!(Scalar);
+impl_non_secure_erase!(Scalar, 0, [0u8; 32]);
 
 const MAX_RAW: [u8; 32] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
-    0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x40
+    0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x40,
 ];
 
 impl Scalar {
     /// Scalar representing `0`
-    pub const ZERO: Scalar = Scalar([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub const ZERO: Scalar = Scalar(constants::ZERO);
     /// Scalar representing `1`
-    pub const ONE: Scalar = Scalar([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    pub const ONE: Scalar = Scalar(constants::ONE);
     /// Maximum valid value: `curve_order - 1`
     pub const MAX: Scalar = Scalar(MAX_RAW);
 
     /// Generates a random scalar
-    #[cfg(any(test, feature = "rand-std"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "rand-std")))]
-    pub fn random() -> Self {
-        Self::random_custom(rand::thread_rng())
-    }
+    #[cfg(feature = "rand-std")]
+    pub fn random() -> Self { Self::random_custom(rand::thread_rng()) }
 
     /// Generates a random scalar using supplied RNG
-    #[cfg(any(test, feature = "rand"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+    #[cfg(feature = "rand")]
     pub fn random_custom<R: rand::Rng>(mut rng: R) -> Self {
         let mut bytes = [0u8; 32];
         loop {
@@ -86,9 +88,7 @@ impl Scalar {
     }
 
     /// Serializes to big endian bytes
-    pub fn to_be_bytes(self) -> [u8; 32] {
-        self.0
-    }
+    pub fn to_be_bytes(self) -> [u8; 32] { self.0 }
 
     /// Serializes to little endian bytes
     pub fn to_le_bytes(self) -> [u8; 32] {
@@ -99,9 +99,7 @@ impl Scalar {
 
     // returns a reference to internal bytes
     // non-public to not leak the internal representation
-    pub(crate) fn as_be_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
+    pub(crate) fn as_be_bytes(&self) -> &[u8; 32] { &self.0 }
 
     pub(crate) fn as_c_ptr(&self) -> *const u8 {
         use secp256k1_sys::CPtr;
@@ -110,12 +108,19 @@ impl Scalar {
     }
 }
 
-impl From<crate::SecretKey> for Scalar {
-    fn from(value: crate::SecretKey) -> Self {
-        Scalar(value.secret_bytes())
-    }
+impl<I> ops::Index<I> for Scalar
+where
+    [u8]: ops::Index<I>,
+{
+    type Output = <[u8] as ops::Index<I>>::Output;
+
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output { &self.0[index] }
 }
 
+impl From<crate::SecretKey> for Scalar {
+    fn from(value: crate::SecretKey) -> Self { Scalar(value.secret_bytes()) }
+}
 
 /// Error returned when the value of scalar is invalid - larger than the curve order.
 // Intentionally doesn't implement `Copy` to improve forward compatibility.
@@ -123,8 +128,7 @@ impl From<crate::SecretKey> for Scalar {
 #[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
-pub struct OutOfRangeError {
-}
+pub struct OutOfRangeError {}
 
 impl fmt::Display for OutOfRangeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -133,5 +137,4 @@ impl fmt::Display for OutOfRangeError {
 }
 
 #[cfg(feature = "std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::error::Error for OutOfRangeError {}

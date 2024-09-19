@@ -6,17 +6,20 @@ mod at;
 mod constants;
 #[cfg(linux_kernel)]
 mod copy_file_range;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "espidf", target_os = "redox")))]
+#[cfg(not(target_os = "haiku"))] // Haiku needs <https://github.com/rust-lang/rust/pull/112371>
 mod cwd;
-#[cfg(not(target_os = "redox"))]
+#[cfg(all(feature = "alloc", not(any(target_os = "espidf", target_os = "redox"))))]
 mod dir;
 #[cfg(not(any(
     apple,
     netbsdlike,
     solarish,
     target_os = "dragonfly",
+    target_os = "espidf",
     target_os = "haiku",
     target_os = "redox",
+    target_os = "vita",
 )))]
 mod fadvise;
 pub(crate) mod fcntl;
@@ -25,18 +28,24 @@ mod fcntl_apple;
 #[cfg(apple)]
 mod fcopyfile;
 pub(crate) mod fd;
-mod file_type;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "alloc"))]
 mod getpath;
 #[cfg(not(target_os = "wasi"))] // WASI doesn't have get[gpu]id.
 mod id;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(linux_kernel)]
 mod ioctl;
-#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "haiku",
+    target_os = "redox",
+    target_os = "vita",
+    target_os = "wasi"
+)))]
 mod makedev;
 #[cfg(any(linux_kernel, target_os = "freebsd"))]
 mod memfd_create;
 #[cfg(linux_kernel)]
+#[cfg(feature = "fs")]
 mod mount;
 #[cfg(linux_kernel)]
 mod openat2;
@@ -47,7 +56,12 @@ mod seek_from;
 mod sendfile;
 #[cfg(linux_kernel)]
 mod statx;
-#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "redox",
+    target_os = "vita",
+    target_os = "wasi"
+)))]
 mod sync;
 #[cfg(any(apple, linux_kernel))]
 mod xattr;
@@ -60,37 +74,46 @@ pub use at::*;
 pub use constants::*;
 #[cfg(linux_kernel)]
 pub use copy_file_range::copy_file_range;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "espidf", target_os = "redox")))]
+#[cfg(not(target_os = "haiku"))] // Haiku needs <https://github.com/rust-lang/rust/pull/112371>
 pub use cwd::*;
-#[cfg(not(target_os = "redox"))]
+#[cfg(all(feature = "alloc", not(any(target_os = "espidf", target_os = "redox"))))]
 pub use dir::{Dir, DirEntry};
 #[cfg(not(any(
     apple,
     netbsdlike,
     solarish,
     target_os = "dragonfly",
+    target_os = "espidf",
     target_os = "haiku",
     target_os = "redox",
+    target_os = "vita",
 )))]
-pub use fadvise::{fadvise, Advice};
+pub use fadvise::fadvise;
 pub use fcntl::*;
 #[cfg(apple)]
-pub use fcntl_apple::{fcntl_fullfsync, fcntl_rdadvise};
+pub use fcntl_apple::*;
 #[cfg(apple)]
 pub use fcopyfile::*;
 pub use fd::*;
-pub use file_type::FileType;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "alloc"))]
 pub use getpath::getpath;
 #[cfg(not(target_os = "wasi"))]
 pub use id::*;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(linux_kernel)]
 pub use ioctl::*;
-#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "haiku",
+    target_os = "redox",
+    target_os = "vita",
+    target_os = "wasi"
+)))]
 pub use makedev::*;
 #[cfg(any(linux_kernel, target_os = "freebsd"))]
-pub use memfd_create::{memfd_create, MemfdFlags};
+pub use memfd_create::memfd_create;
 #[cfg(linux_kernel)]
+#[cfg(feature = "fs")]
 pub use mount::*;
 #[cfg(linux_kernel)]
 pub use openat2::openat2;
@@ -100,8 +123,13 @@ pub use seek_from::SeekFrom;
 #[cfg(target_os = "linux")]
 pub use sendfile::sendfile;
 #[cfg(linux_kernel)]
-pub use statx::{statx, Statx, StatxFlags, StatxTimestamp};
-#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub use statx::statx;
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "redox",
+    target_os = "vita",
+    target_os = "wasi"
+)))]
 pub use sync::sync;
 #[cfg(any(apple, linux_kernel))]
 pub use xattr::*;

@@ -12,6 +12,8 @@ mod collections;
 mod default_on;
 mod enum_map;
 mod frominto;
+mod fromintoref;
+mod key_value_map;
 mod map_tuple_list;
 mod pickfirst;
 mod serde_as_macro;
@@ -26,13 +28,16 @@ use alloc::{
     rc::{Rc, Weak as RcWeak},
     sync::{Arc, Weak as ArcWeak},
 };
-use core::cell::{Cell, RefCell};
+use core::{
+    cell::{Cell, RefCell},
+    ops::Bound,
+};
 use expect_test::expect;
 use serde::{Deserialize, Serialize};
 use serde_with::{
-    formats::{Flexible, Strict},
-    serde_as, BoolFromInt, BytesOrString, CommaSeparator, DisplayFromStr, NoneAsEmptyString,
-    OneOrMany, Same, StringWithSeparator,
+    formats::{CommaSeparator, Flexible, Strict},
+    serde_as, BoolFromInt, BytesOrString, DisplayFromStr, IfIsHumanReadable, Map,
+    NoneAsEmptyString, OneOrMany, Same, Seq, StringWithSeparator,
 };
 use std::{
     collections::HashMap,
@@ -135,6 +140,41 @@ fn test_option() {
 }
 
 #[test]
+fn test_bound() {
+    #[serde_as]
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct S(#[serde_as(as = "Bound<DisplayFromStr>")] Bound<u32>);
+
+    is_equal(S(Bound::Unbounded), expect![[r#""Unbounded""#]]);
+    is_equal(
+        S(Bound::Included(42)),
+        expect![[r#"
+        {
+          "Included": "42"
+        }"#]],
+    );
+    is_equal(
+        S(Bound::Excluded(42)),
+        expect![[r#"
+        {
+          "Excluded": "42"
+        }"#]],
+    );
+    check_error_deserialization::<S>(r#"{}"#, expect![[r#"expected value at line 1 column 2"#]]);
+
+    #[serde_as]
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct Struct {
+        #[serde_as(as = "Bound<DisplayFromStr>")]
+        value: Bound<u32>,
+    }
+    check_error_deserialization::<Struct>(
+        r#"{}"#,
+        expect![[r#"missing field `value` at line 1 column 2"#]],
+    );
+}
+
+#[test]
 fn test_result() {
     #[serde_as]
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -167,6 +207,23 @@ fn test_display_fromstr() {
     struct S(#[serde_as(as = "DisplayFromStr")] u32);
 
     is_equal(S(123), expect![[r#""123""#]]);
+}
+
+#[test]
+fn test_if_is_human_readable() {
+    #[serde_as]
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct S(#[serde_as(as = "IfIsHumanReadable<DisplayFromStr>")] u32);
+
+    let ser_json = serde_json::to_string(&S(123)).unwrap();
+    assert_eq!(ser_json, r#""123""#);
+    let ser_rmp = rmp_serde::to_vec(&S(123)).unwrap();
+    assert_eq!(ser_rmp, vec![123]);
+
+    let de_json: S = serde_json::from_str(r#""123""#).unwrap();
+    assert_eq!(S(123), de_json);
+    let de_rmp: S = rmp_serde::from_read(&*vec![123]).unwrap();
+    assert_eq!(S(123), de_rmp);
 }
 
 #[test]
@@ -443,7 +500,10 @@ fn test_bytes_or_string() {
 
 #[test]
 fn string_with_separator() {
-    use serde_with::{rust::StringWithSeparator, CommaSeparator, SpaceSeparator};
+    use serde_with::{
+        formats::{CommaSeparator, SpaceSeparator},
+        StringWithSeparator,
+    };
 
     #[serde_as]
     #[derive(Deserialize, Serialize)]
@@ -467,7 +527,7 @@ fn string_with_separator() {
 
     let x = A {
         tags: vec!["1".to_string(), "2".to_string(), "3".to_string()],
-        more_tags: Default::default(),
+        more_tags: BTreeSet::default(),
     };
     assert_eq!(
         r#"{"tags":"1 2 3","more_tags":""}"#,
@@ -840,8 +900,20 @@ fn test_one_or_many_prefer_one() {
     );
     check_deserialization(S1Vec(vec![1]), r#"1"#);
     check_deserialization(S1Vec(vec![1]), r#"[1]"#);
-    check_error_deserialization::<S1Vec>(r#"{}"#, expect![[r#"a list or single element"#]]);
-    check_error_deserialization::<S1Vec>(r#""xx""#, expect![[r#"a list or single element"#]]);
+    check_error_deserialization::<S1Vec>(
+        r#"{}"#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: map, expected u32
+          Many: invalid type: map, expected a sequence"#]],
+    );
+    check_error_deserialization::<S1Vec>(
+        r#""xx""#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: string "xx", expected u32
+          Many: invalid type: string "xx", expected a sequence"#]],
+    );
 
     #[serde_as]
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -861,8 +933,20 @@ fn test_one_or_many_prefer_one() {
     );
     check_deserialization(S2Vec(vec![1]), r#""1""#);
     check_deserialization(S2Vec(vec![1]), r#"["1"]"#);
-    check_error_deserialization::<S2Vec>(r#"{}"#, expect![[r#"a list or single element"#]]);
-    check_error_deserialization::<S2Vec>(r#""xx""#, expect![[r#"a list or single element"#]]);
+    check_error_deserialization::<S2Vec>(
+        r#"{}"#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: map, expected a string
+          Many: invalid type: map, expected a sequence"#]],
+    );
+    check_error_deserialization::<S2Vec>(
+        r#""xx""#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid digit found in string
+          Many: invalid type: string "xx", expected a sequence"#]],
+    );
 }
 
 #[test]
@@ -893,8 +977,20 @@ fn test_one_or_many_prefer_many() {
     );
     check_deserialization(S1Vec(vec![1]), r#"1"#);
     check_deserialization(S1Vec(vec![1]), r#"[1]"#);
-    check_error_deserialization::<S1Vec>(r#"{}"#, expect![[r#"a list or single element"#]]);
-    check_error_deserialization::<S1Vec>(r#""xx""#, expect![[r#"a list or single element"#]]);
+    check_error_deserialization::<S1Vec>(
+        r#"{}"#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: map, expected u32
+          Many: invalid type: map, expected a sequence"#]],
+    );
+    check_error_deserialization::<S1Vec>(
+        r#""xx""#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: string "xx", expected u32
+          Many: invalid type: string "xx", expected a sequence"#]],
+    );
 
     #[serde_as]
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -920,14 +1016,30 @@ fn test_one_or_many_prefer_many() {
     );
     check_deserialization(S2Vec(vec![1]), r#""1""#);
     check_deserialization(S2Vec(vec![1]), r#"["1"]"#);
-    check_error_deserialization::<S2Vec>(r#"{}"#, expect![[r#"a list or single element"#]]);
-    check_error_deserialization::<S2Vec>(r#""xx""#, expect![[r#"a list or single element"#]]);
+    check_error_deserialization::<S2Vec>(
+        r#"{}"#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid type: map, expected a string
+          Many: invalid type: map, expected a sequence"#]],
+    );
+    check_error_deserialization::<S2Vec>(
+        r#""xx""#,
+        expect![[r#"
+        OneOrMany could not deserialize any variant:
+          One: invalid digit found in string
+          Many: invalid type: string "xx", expected a sequence"#]],
+    );
 }
 
 /// Test that Cow borrows from the input
 #[test]
 fn test_borrow_cow_str() {
     use alloc::borrow::Cow;
+    use serde::de::{
+        value::{BorrowedStrDeserializer, MapDeserializer},
+        IntoDeserializer,
+    };
     use serde_test::{assert_ser_tokens, Token};
     use serde_with::BorrowCow;
 
@@ -1026,39 +1138,35 @@ fn test_borrow_cow_str() {
             Token::StructEnd,
         ],
     );
-    let tokens = &[
-        Token::Struct { name: "S2", len: 2 },
-        Token::Str("cow"),
-        Token::BorrowedBytes(b"abc"),
-        Token::Str("opt"),
-        Token::Some,
-        Token::BorrowedBytes(b"foo"),
-        Token::StructEnd,
-    ];
-    let mut deser = serde_test::Deserializer::new(tokens);
-    let s2 = S2::deserialize(&mut deser).unwrap();
-    assert!(matches!(s2.cow, Cow::Borrowed(_)));
-    assert!(matches!(s2.opt, Some(Cow::Borrowed(_))));
 
     // Check that a manual borrow works too
     #[serde_as]
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct S3<'a>(
+    struct S3<'a> {
         #[serde(borrow = "'a")]
         #[serde_as(as = "BorrowCow")]
-        Cow<'a, [u8]>,
+        borrowed: Cow<'a, [u8]>,
         // TODO add a test for Cow<'b, [u8; N]>
         // #[serde_as(as = "BorrowCow")]
         // Cow<'b, [u8; N]>,
-    );
-    let tokens = &[
-        Token::NewtypeStruct { name: "S3" },
-        Token::BorrowedBytes(b"abc"),
-    ];
+    }
 
-    let mut deser = serde_test::Deserializer::new(tokens);
-    let s3 = S3::deserialize(&mut deser).unwrap();
-    assert!(matches!(s3.0, Cow::Borrowed(_)));
+    struct BorrowedStr(&'static str);
+
+    impl<'de> IntoDeserializer<'de> for BorrowedStr {
+        type Deserializer = BorrowedStrDeserializer<'de, serde::de::value::Error>;
+
+        fn into_deserializer(self) -> Self::Deserializer {
+            BorrowedStrDeserializer::new(self.0)
+        }
+    }
+
+    let deser = MapDeserializer::new(IntoIterator::into_iter([
+        ("copied", BorrowedStr("copied")),
+        ("borrowed", BorrowedStr("borrowed")),
+    ]));
+    let s3 = S3::deserialize(deser).unwrap();
+    assert!(matches!(s3.borrowed, Cow::Borrowed(_)));
 }
 
 #[test]

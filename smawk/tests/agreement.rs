@@ -3,8 +3,7 @@
 use ndarray::{s, Array2};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use smawk::{brute_force, recursive};
-use smawk::{online_column_minima, smawk_column_minima, smawk_row_minima};
+use smawk::{brute_force, online_column_minima, recursive};
 
 mod random_monge;
 use random_monge::random_monge_matrix;
@@ -24,7 +23,7 @@ fn column_minima_agree() {
                 // Compute and test row minima.
                 let brute_force = brute_force::row_minima(&matrix);
                 let recursive = recursive::row_minima(&matrix);
-                let smawk = smawk_row_minima(&matrix);
+                let smawk = smawk::row_minima(&matrix);
                 assert_eq!(
                     brute_force, recursive,
                     "recursive and brute force differs on:\n{:?}",
@@ -39,7 +38,7 @@ fn column_minima_agree() {
                 // Do the same for the column minima.
                 let brute_force = brute_force::column_minima(&matrix);
                 let recursive = recursive::column_minima(&matrix);
-                let smawk = smawk_column_minima(&matrix);
+                let smawk = smawk::column_minima(&matrix);
                 assert_eq!(
                     brute_force, recursive,
                     "recursive and brute force differs on:\n{:?}",

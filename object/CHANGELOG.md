@@ -2,6 +2,139 @@
 
 --------------------------------------------------------------------------------
 
+## 0.32.2
+
+Released 2023/12/24.
+
+### Added
+
+* Added ELF relocations for LoongArch ABI v2.20.
+  [#578](https://github.com/gimli-rs/object/pull/578)
+  [#589](https://github.com/gimli-rs/object/pull/589)
+
+* Added ELF support for SHARC.
+  [#593](https://github.com/gimli-rs/object/pull/593)
+
+* Added `write::coff::Writer`.
+  [#595](https://github.com/gimli-rs/object/pull/595)
+
+* Added `SubArchitecture::Arm64EC` support for PE/COFF.
+  [#607](https://github.com/gimli-rs/object/pull/607)
+
+* Added `SubArchitecture::Arm64E` support for Mach-O.
+  [#614](https://github.com/gimli-rs/object/pull/614)
+
+* Added `read::Object::symbol_by_name` and `read::Object::symbol_by_name_bytes`.
+  [#602](https://github.com/gimli-rs/object/pull/602)
+
+* Added more functions to the low level API in `read::xcoff`.
+  [#608](https://github.com/gimli-rs/object/pull/608)
+
+* Added more functions to the low level API in `read::macho`.
+  [#584](https://github.com/gimli-rs/object/pull/584)
+
+### Changed
+
+* Fixes for AArch64 relocation addends for Mach-O.
+  [#581](https://github.com/gimli-rs/object/pull/581)
+
+* Changes to `write::Object` output for Mach-O, including the addition of a `LC_DYSYMTAB` load command.
+  [#584](https://github.com/gimli-rs/object/pull/584)
+
+* Changed `write::Object` to always use `R_X86_64_PLT32` for x86-64 branches for ELF.
+  [#590](https://github.com/gimli-rs/object/pull/590)
+
+* Fixed `read::ObjectSymbol::kind` for undefined section symbols for COFF.
+  [#592](https://github.com/gimli-rs/object/pull/592)
+
+* Fixed `write::Object` to accept undefined section symbols for COFF.
+  [#594](https://github.com/gimli-rs/object/pull/594)
+
+* Improved parsing of auxiliary section symbols for COFF.
+  [#603](https://github.com/gimli-rs/object/pull/603)
+
+* Improved the selection of symbols for `read::Object::symbol_map`.
+  This includes changes to `read::Symbol::is_definition`.
+  [#601](https://github.com/gimli-rs/object/pull/601)
+  [#606](https://github.com/gimli-rs/object/pull/606)
+
+* Changed `read::ObjectSymbol::kind` for ELF `STT_NOTYPE` symbols to `SymbolKind::Unknown`.
+  [#604](https://github.com/gimli-rs/object/pull/604)
+
+* Changed `read::ObjectSymbol::scope` for XCOFF `C_HIDEXT` symbols to `SymbolScope::Compilation`.
+  [#605](https://github.com/gimli-rs/object/pull/605)
+
+--------------------------------------------------------------------------------
+
+## 0.32.1
+
+Released 2023/09/03.
+
+### Added
+
+* Added `write::Object::set_macho_cpu_subtype`.
+  [#574](https://github.com/gimli-rs/object/pull/574)
+
+--------------------------------------------------------------------------------
+
+## 0.32.0
+
+Released 2023/08/12.
+
+### Breaking changes
+
+* Changed `read::elf::Note::name` to exclude all trailing null bytes.
+  [#549](https://github.com/gimli-rs/object/pull/549)
+
+* Updated dependencies, and changed some optional dependencies to use the `dep:`
+  feature syntax.
+  [#558](https://github.com/gimli-rs/object/pull/558)
+  [#569](https://github.com/gimli-rs/object/pull/569)
+
+### Changed
+
+* The minimum supported rust version for the `read` feature and its dependencies
+  has changed to 1.60.0.
+
+* The minimum supported rust version for other features has changed to 1.65.0.
+
+* Changed many definitions from `static` to `const`.
+  [#549](https://github.com/gimli-rs/object/pull/549)
+
+* Fixed Mach-O section alignment padding in `write::Object`.
+  [#553](https://github.com/gimli-rs/object/pull/553)
+
+* Changed `read::File` to an enum.
+  [#564](https://github.com/gimli-rs/object/pull/564)
+
+### Added
+
+* Added `elf::ELF_NOTE_GO`, `elf::NT_GO_BUILD_ID`, and `read::elf::Note::name_bytes`.
+  [#549](https://github.com/gimli-rs/object/pull/549)
+
+* Added `read::FileKind::CoffImport` and `read::coff::ImportFile`.
+  [#555](https://github.com/gimli-rs/object/pull/555)
+  [#556](https://github.com/gimli-rs/object/pull/556)
+
+* Added `Architecture::Csky` and basic ELF support for C-SKY.
+  [#561](https://github.com/gimli-rs/object/pull/561)
+
+* Added `read::elf::ElfSymbol::raw_symbol`.
+  [#562](https://github.com/gimli-rs/object/pull/562)
+
+--------------------------------------------------------------------------------
+
+## 0.30.4
+
+Released 2023/06/05.
+
+### Changed
+
+* Fixed Mach-O section alignment padding in `write::Object`.
+  [#553](https://github.com/gimli-rs/object/pull/553)
+
+--------------------------------------------------------------------------------
+
 ## 0.31.1
 
 Released 2023/05/09.

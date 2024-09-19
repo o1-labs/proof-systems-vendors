@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "xdg"
-version = "2.5.0"
+version = "2.5.2"
 authors = [
     "Ben Longbons <b.r.longbons@gmail.com>",
     "whitequark <whitequark@whitequark.org>",
@@ -25,11 +25,9 @@ keywords = [
     "linux",
     "configuration",
 ]
+categories = ["filesystem"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/whitequark/rust-xdg"
-
-[dependencies.home]
-version = "0.5"
 
 [dependencies.serde]
 version = "1.0"

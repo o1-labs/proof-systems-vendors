@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
-rust-version = "1.36"
+edition = "2021"
+rust-version = "1.56"
 name = "serde_json"
-version = "1.0.100"
+version = "1.0.113"
 authors = [
     "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
     "David Tolnay <dtolnay@gmail.com>",
@@ -36,12 +36,14 @@ repository = "https://github.com/serde-rs/json"
 
 [package.metadata.docs.rs]
 features = [
+    "preserve_order",
     "raw_value",
     "unbounded_depth",
 ]
 rustdoc-args = [
     "--cfg",
     "docsrs",
+    "--generate-link-to-definition",
 ]
 targets = ["x86_64-unknown-linux-gnu"]
 
@@ -52,7 +54,7 @@ features = ["raw_value"]
 doc-scrape-examples = false
 
 [dependencies.indexmap]
-version = "2"
+version = "2.2.1"
 optional = true
 
 [dependencies.itoa]
@@ -62,7 +64,7 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.serde]
-version = "1.0.166"
+version = "1.0.194"
 default-features = false
 
 [dev-dependencies.automod]
@@ -78,7 +80,7 @@ version = "1.0.18"
 version = "1.0.13"
 
 [dev-dependencies.serde]
-version = "1.0.166"
+version = "1.0.194"
 features = ["derive"]
 
 [dev-dependencies.serde_bytes]

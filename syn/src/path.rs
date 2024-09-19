@@ -53,8 +53,9 @@ impl Path {
     ///     }
     /// }
     /// ```
-    pub fn is_ident<I: ?Sized>(&self, ident: &I) -> bool
+    pub fn is_ident<I>(&self, ident: &I) -> bool
     where
+        I: ?Sized,
         Ident: PartialEq<I>,
     {
         match self.get_ident() {
@@ -80,6 +81,19 @@ impl Path {
         } else {
             None
         }
+    }
+
+    /// An error if this path is not a single ident, as defined in `get_ident`.
+    #[cfg(feature = "parsing")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    pub fn require_ident(&self) -> Result<&Ident> {
+        self.get_ident().ok_or_else(|| {
+            crate::error::new2(
+                self.segments.first().unwrap().ident.span(),
+                self.segments.last().unwrap().ident.span(),
+                "expected this path to be an identifier",
+            )
+        })
     }
 }
 
@@ -263,7 +277,7 @@ ast_struct! {
 pub(crate) mod parsing {
     use super::*;
 
-    use crate::ext::IdentExt;
+    use crate::ext::IdentExt as _;
     use crate::parse::{Parse, ParseStream, Result};
 
     #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
@@ -410,7 +424,10 @@ pub(crate) mod parsing {
             Self::do_parse(Some(colon2_token), input)
         }
 
-        fn do_parse(colon2_token: Option<Token![::]>, input: ParseStream) -> Result<Self> {
+        pub(crate) fn do_parse(
+            colon2_token: Option<Token![::]>,
+            input: ParseStream,
+        ) -> Result<Self> {
             Ok(AngleBracketedGenericArguments {
                 colon2_token,
                 lt_token: input.parse()?,
@@ -648,6 +665,10 @@ pub(crate) mod parsing {
 pub(crate) mod printing {
     use super::*;
     use crate::print::TokensOrDefault;
+    #[cfg(feature = "parsing")]
+    use crate::spanned::Spanned;
+    #[cfg(feature = "parsing")]
+    use proc_macro2::Span;
     use proc_macro2::TokenStream;
     use quote::ToTokens;
     use std::cmp;
@@ -834,6 +855,23 @@ pub(crate) mod printing {
         }
         for segment in segments {
             segment.to_tokens(tokens);
+        }
+    }
+
+    #[cfg(feature = "parsing")]
+    #[cfg_attr(doc_cfg, doc(cfg(all(feature = "parsing", feature = "printing"))))]
+    impl Spanned for QSelf {
+        fn span(&self) -> Span {
+            struct QSelfDelimiters<'a>(&'a QSelf);
+
+            impl<'a> ToTokens for QSelfDelimiters<'a> {
+                fn to_tokens(&self, tokens: &mut TokenStream) {
+                    self.0.lt_token.to_tokens(tokens);
+                    self.0.gt_token.to_tokens(tokens);
+                }
+            }
+
+            QSelfDelimiters(self).span()
         }
     }
 }

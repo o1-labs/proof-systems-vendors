@@ -19,6 +19,7 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
     // Basic: [year]["W"][week][dayk]
     // Extended: [year]["-"]["W"][week]["-"][dayk]
     /// Parse a date in the basic or extended format. Reduced precision is permitted.
+    #[allow(clippy::needless_pass_by_ref_mut)] // rust-lang/rust-clippy#11620
     pub(crate) fn parse_date<'a>(
         parsed: &'a mut Parsed,
         extended_kind: &'a mut ExtendedKind,
@@ -125,16 +126,16 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                     *parsed = parsed
                         .with_hour_24(hour)
                         .ok_or(InvalidComponent("hour"))?
-                        .with_minute((fractional_part * Second.per(Minute) as f64) as _)
+                        .with_minute((fractional_part * Second::per(Minute) as f64) as _)
                         .ok_or(InvalidComponent("minute"))?
                         .with_second(
-                            (fractional_part * Second.per(Hour) as f64 % Minute.per(Hour) as f64)
+                            (fractional_part * Second::per(Hour) as f64 % Minute::per(Hour) as f64)
                                 as _,
                         )
                         .ok_or(InvalidComponent("second"))?
                         .with_subsecond(
-                            (fractional_part * Nanosecond.per(Hour) as f64
-                                % Nanosecond.per(Second) as f64) as _,
+                            (fractional_part * Nanosecond::per(Hour) as f64
+                                % Nanosecond::per(Second) as f64) as _,
                         )
                         .ok_or(InvalidComponent("subsecond"))?;
                     return Ok(input);
@@ -162,11 +163,11 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                     *parsed = parsed
                         .with_minute(minute)
                         .ok_or(InvalidComponent("minute"))?
-                        .with_second((fractional_part * Second.per(Minute) as f64) as _)
+                        .with_second((fractional_part * Second::per(Minute) as f64) as _)
                         .ok_or(InvalidComponent("second"))?
                         .with_subsecond(
-                            (fractional_part * Nanosecond.per(Minute) as f64
-                                % Nanosecond.per(Second) as f64) as _,
+                            (fractional_part * Nanosecond::per(Minute) as f64
+                                % Nanosecond::per(Second) as f64) as _,
                         )
                         .ok_or(InvalidComponent("subsecond"))?;
                     return Ok(input);
@@ -209,7 +210,7 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                 Some(ParsedItem(input, (second, Some(fractional_part)))) => (
                     input,
                     second,
-                    round(fractional_part * Nanosecond.per(Second) as f64) as _,
+                    round(fractional_part * Nanosecond::per(Second) as f64) as _,
                 ),
                 None if extended_kind.is_extended() => {
                     return Err(error::Parse::ParseFromDescription(InvalidComponent(

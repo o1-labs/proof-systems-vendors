@@ -1,28 +1,33 @@
 //! libc syscalls supporting `rustix::io`.
 
-use crate::backend::conv::{
-    borrowed_fd, ret, ret_c_int, ret_discarded_fd, ret_owned_fd, ret_usize,
-};
-use crate::backend::{c, MAX_IOV};
+use crate::backend::c;
+#[cfg(not(target_os = "wasi"))]
+use crate::backend::conv::ret_discarded_fd;
+use crate::backend::conv::{borrowed_fd, ret, ret_c_int, ret_owned_fd, ret_usize};
 use crate::fd::{AsFd, BorrowedFd, OwnedFd, RawFd};
-#[cfg(not(any(target_os = "aix", target_os = "wasi")))]
+#[cfg(not(any(
+    target_os = "aix",
+    target_os = "espidf",
+    target_os = "nto",
+    target_os = "vita",
+    target_os = "wasi"
+)))]
 use crate::io::DupFlags;
 #[cfg(linux_kernel)]
 use crate::io::ReadWriteFlags;
-use crate::io::{self, FdFlags, IoSlice, IoSliceMut};
+use crate::io::{self, FdFlags};
+use crate::ioctl::{IoctlOutput, RawOpcode};
 use core::cmp::min;
-use core::mem::MaybeUninit;
 #[cfg(all(feature = "fs", feature = "net"))]
 use libc_errno::errno;
+#[cfg(not(target_os = "espidf"))]
+use {
+    crate::backend::MAX_IOV,
+    crate::io::{IoSlice, IoSliceMut},
+};
 
-pub(crate) fn read(fd: BorrowedFd<'_>, buf: &mut [u8]) -> io::Result<usize> {
-    unsafe {
-        ret_usize(c::read(
-            borrowed_fd(fd),
-            buf.as_mut_ptr().cast(),
-            min(buf.len(), READ_LIMIT),
-        ))
-    }
+pub(crate) unsafe fn read(fd: BorrowedFd<'_>, buf: *mut u8, len: usize) -> io::Result<usize> {
+    ret_usize(c::read(borrowed_fd(fd), buf.cast(), min(len, READ_LIMIT)))
 }
 
 pub(crate) fn write(fd: BorrowedFd<'_>, buf: &[u8]) -> io::Result<usize> {
@@ -35,20 +40,22 @@ pub(crate) fn write(fd: BorrowedFd<'_>, buf: &[u8]) -> io::Result<usize> {
     }
 }
 
-pub(crate) fn pread(fd: BorrowedFd<'_>, buf: &mut [u8], offset: u64) -> io::Result<usize> {
-    let len = min(buf.len(), READ_LIMIT);
+pub(crate) unsafe fn pread(
+    fd: BorrowedFd<'_>,
+    buf: *mut u8,
+    len: usize,
+    offset: u64,
+) -> io::Result<usize> {
+    let len = min(len, READ_LIMIT);
 
     // Silently cast; we'll get `EINVAL` if the value is negative.
     let offset = offset as i64;
 
-    unsafe {
-        ret_usize(c::pread(
-            borrowed_fd(fd),
-            buf.as_mut_ptr().cast(),
-            len,
-            offset,
-        ))
-    }
+    // ESP-IDF and Vita don't support 64-bit offsets.
+    #[cfg(any(target_os = "espidf", target_os = "vita"))]
+    let offset: i32 = offset.try_into().map_err(|_| io::Errno::OVERFLOW)?;
+
+    ret_usize(c::pread(borrowed_fd(fd), buf.cast(), len, offset))
 }
 
 pub(crate) fn pwrite(fd: BorrowedFd<'_>, buf: &[u8], offset: u64) -> io::Result<usize> {
@@ -57,10 +64,15 @@ pub(crate) fn pwrite(fd: BorrowedFd<'_>, buf: &[u8], offset: u64) -> io::Result<
     // Silently cast; we'll get `EINVAL` if the value is negative.
     let offset = offset as i64;
 
+    // ESP-IDF and Vita don't support 64-bit offsets.
+    #[cfg(any(target_os = "espidf", target_os = "vita"))]
+    let offset: i32 = offset.try_into().map_err(|_| io::Errno::OVERFLOW)?;
+
     unsafe { ret_usize(c::pwrite(borrowed_fd(fd), buf.as_ptr().cast(), len, offset)) }
 }
 
-pub(crate) fn readv(fd: BorrowedFd<'_>, bufs: &mut [IoSliceMut]) -> io::Result<usize> {
+#[cfg(not(target_os = "espidf"))]
+pub(crate) fn readv(fd: BorrowedFd<'_>, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
     unsafe {
         ret_usize(c::readv(
             borrowed_fd(fd),
@@ -70,7 +82,8 @@ pub(crate) fn readv(fd: BorrowedFd<'_>, bufs: &mut [IoSliceMut]) -> io::Result<u
     }
 }
 
-pub(crate) fn writev(fd: BorrowedFd<'_>, bufs: &[IoSlice]) -> io::Result<usize> {
+#[cfg(not(target_os = "espidf"))]
+pub(crate) fn writev(fd: BorrowedFd<'_>, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
     unsafe {
         ret_usize(c::writev(
             borrowed_fd(fd),
@@ -80,10 +93,17 @@ pub(crate) fn writev(fd: BorrowedFd<'_>, bufs: &[IoSlice]) -> io::Result<usize> 
     }
 }
 
-#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "solaris")))]
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "haiku",
+    target_os = "nto",
+    target_os = "redox",
+    target_os = "solaris",
+    target_os = "vita"
+)))]
 pub(crate) fn preadv(
     fd: BorrowedFd<'_>,
-    bufs: &mut [IoSliceMut],
+    bufs: &mut [IoSliceMut<'_>],
     offset: u64,
 ) -> io::Result<usize> {
     // Silently cast; we'll get `EINVAL` if the value is negative.
@@ -98,8 +118,15 @@ pub(crate) fn preadv(
     }
 }
 
-#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "solaris")))]
-pub(crate) fn pwritev(fd: BorrowedFd<'_>, bufs: &[IoSlice], offset: u64) -> io::Result<usize> {
+#[cfg(not(any(
+    target_os = "espidf",
+    target_os = "haiku",
+    target_os = "nto",
+    target_os = "redox",
+    target_os = "solaris",
+    target_os = "vita"
+)))]
+pub(crate) fn pwritev(fd: BorrowedFd<'_>, bufs: &[IoSlice<'_>], offset: u64) -> io::Result<usize> {
     // Silently cast; we'll get `EINVAL` if the value is negative.
     let offset = offset as i64;
     unsafe {
@@ -115,7 +142,7 @@ pub(crate) fn pwritev(fd: BorrowedFd<'_>, bufs: &[IoSlice], offset: u64) -> io::
 #[cfg(linux_kernel)]
 pub(crate) fn preadv2(
     fd: BorrowedFd<'_>,
-    bufs: &mut [IoSliceMut],
+    bufs: &mut [IoSliceMut<'_>],
     offset: u64,
     flags: ReadWriteFlags,
 ) -> io::Result<usize> {
@@ -135,7 +162,7 @@ pub(crate) fn preadv2(
 #[cfg(linux_kernel)]
 pub(crate) fn pwritev2(
     fd: BorrowedFd<'_>,
-    bufs: &[IoSlice],
+    bufs: &[IoSlice<'_>],
     offset: u64,
     flags: ReadWriteFlags,
 ) -> io::Result<usize> {
@@ -172,27 +199,29 @@ pub(crate) unsafe fn close(raw_fd: RawFd) {
     let _ = c::close(raw_fd as c::c_int);
 }
 
-pub(crate) fn ioctl_fionread(fd: BorrowedFd<'_>) -> io::Result<u64> {
-    let mut nread = MaybeUninit::<c::c_int>::uninit();
-    unsafe {
-        ret(c::ioctl(borrowed_fd(fd), c::FIONREAD, nread.as_mut_ptr()))?;
-        // `FIONREAD` returns the number of bytes silently casted to a `c_int`,
-        // even when this is lossy. The best we can do is convert it back to a
-        // `u64` without sign-extending it back first.
-        Ok(u64::from(nread.assume_init() as c::c_uint))
-    }
+#[inline]
+pub(crate) unsafe fn ioctl(
+    fd: BorrowedFd<'_>,
+    request: RawOpcode,
+    arg: *mut c::c_void,
+) -> io::Result<IoctlOutput> {
+    ret_c_int(c::ioctl(borrowed_fd(fd), request, arg))
 }
 
-pub(crate) fn ioctl_fionbio(fd: BorrowedFd<'_>, value: bool) -> io::Result<()> {
-    unsafe {
-        let data = value as c::c_int;
-        ret(c::ioctl(borrowed_fd(fd), c::FIONBIO, &data))
-    }
+#[inline]
+pub(crate) unsafe fn ioctl_readonly(
+    fd: BorrowedFd<'_>,
+    request: RawOpcode,
+    arg: *mut c::c_void,
+) -> io::Result<IoctlOutput> {
+    ioctl(fd, request, arg)
 }
 
 #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
 #[cfg(all(feature = "fs", feature = "net"))]
 pub(crate) fn is_read_write(fd: BorrowedFd<'_>) -> io::Result<(bool, bool)> {
+    use core::mem::MaybeUninit;
+
     let (mut read, mut write) = crate::fs::fd::_is_file_read_write(fd)?;
     let mut not_socket = false;
     if read {
@@ -251,9 +280,14 @@ pub(crate) fn fcntl_setfd(fd: BorrowedFd<'_>, flags: FdFlags) -> io::Result<()> 
     unsafe { ret(c::fcntl(borrowed_fd(fd), c::F_SETFD, flags.bits())) }
 }
 
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(any(target_os = "espidf", target_os = "wasi")))]
 pub(crate) fn fcntl_dupfd_cloexec(fd: BorrowedFd<'_>, min: RawFd) -> io::Result<OwnedFd> {
     unsafe { ret_owned_fd(c::fcntl(borrowed_fd(fd), c::F_DUPFD_CLOEXEC, min)) }
+}
+
+#[cfg(target_os = "espidf")]
+pub(crate) fn fcntl_dupfd(fd: BorrowedFd<'_>, min: RawFd) -> io::Result<OwnedFd> {
+    unsafe { ret_owned_fd(c::fcntl(borrowed_fd(fd), c::F_DUPFD, min)) }
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -261,18 +295,23 @@ pub(crate) fn dup(fd: BorrowedFd<'_>) -> io::Result<OwnedFd> {
     unsafe { ret_owned_fd(c::dup(borrowed_fd(fd))) }
 }
 
+#[allow(clippy::needless_pass_by_ref_mut)]
 #[cfg(not(target_os = "wasi"))]
 pub(crate) fn dup2(fd: BorrowedFd<'_>, new: &mut OwnedFd) -> io::Result<()> {
     unsafe { ret_discarded_fd(c::dup2(borrowed_fd(fd), borrowed_fd(new.as_fd()))) }
 }
 
+#[allow(clippy::needless_pass_by_ref_mut)]
 #[cfg(not(any(
     apple,
     target_os = "aix",
     target_os = "android",
     target_os = "dragonfly",
+    target_os = "espidf",
     target_os = "haiku",
+    target_os = "nto",
     target_os = "redox",
+    target_os = "vita",
     target_os = "wasi",
 )))]
 pub(crate) fn dup3(fd: BorrowedFd<'_>, new: &mut OwnedFd, flags: DupFlags) -> io::Result<()> {
@@ -298,15 +337,4 @@ pub(crate) fn dup3(fd: BorrowedFd<'_>, new: &mut OwnedFd, _flags: DupFlags) -> i
     // `dup2` and `dup3` when the file descriptors are equal because we
     // have an `&mut OwnedFd` which means `fd` doesn't alias it.
     dup2(fd, new)
-}
-
-#[cfg(apple)]
-pub(crate) fn ioctl_fioclex(fd: BorrowedFd<'_>) -> io::Result<()> {
-    unsafe {
-        ret(c::ioctl(
-            borrowed_fd(fd),
-            c::FIOCLEX,
-            core::ptr::null_mut::<u8>(),
-        ))
-    }
 }

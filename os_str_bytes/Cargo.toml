@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.57.0"
+rust-version = "1.61.0"
 name = "os_str_bytes"
-version = "6.5.1"
+version = "6.6.1"
 authors = ["dylni"]
 exclude = [
     ".*",
@@ -69,10 +69,15 @@ optional = true
 [dev-dependencies.fastrand]
 version = "2.0"
 
+[dev-dependencies.lazy_static]
+version = "1.4"
+
 [features]
-checked_conversions = []
+checked_conversions = ["conversions"]
+conversions = []
 default = [
     "memchr",
     "raw_os_str",
 ]
+nightly = []
 raw_os_str = []
