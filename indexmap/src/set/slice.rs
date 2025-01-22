@@ -59,14 +59,14 @@ impl<T> Slice<T> {
 
     /// Get a value by index.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     pub fn get_index(&self, index: usize) -> Option<&T> {
         self.entries.get(index).map(Bucket::key_ref)
     }
 
     /// Returns a slice of values in the given range of indices.
     ///
-    /// Valid indices are *0 <= index < self.len()*
+    /// Valid indices are `0 <= index < self.len()`.
     pub fn get_range<R: RangeBounds<usize>>(&self, range: R) -> Option<&Self> {
         let range = try_simplify_range(range, self.entries.len())?;
         self.entries.get(range).map(Self::from_slice)
@@ -293,7 +293,6 @@ impl_index!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec::Vec;
 
     #[test]
     fn slice_index() {

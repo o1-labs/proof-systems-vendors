@@ -1,5 +1,7 @@
 //! The [`Time`] struct and its associated `impl`s.
 
+#[cfg(feature = "formatting")]
+use alloc::string::String;
 use core::fmt;
 use core::ops::{Add, Sub};
 use core::time::Duration as StdDuration;
@@ -7,6 +9,7 @@ use core::time::Duration as StdDuration;
 use std::io;
 
 use deranged::{RangedU32, RangedU8};
+use num_conv::prelude::*;
 use powerfmt::ext::FormatterExt;
 use powerfmt::smart_display::{self, FormatterOptions, Metadata, SmartDisplay};
 
@@ -140,25 +143,26 @@ impl Time {
         ]);
     }
 
-    /// Create a `Time` that is exactly midnight.
+    /// A `Time` that is exactly midnight. This is the smallest possible value for a `Time`.
     ///
     /// ```rust
     /// # use time::Time;
     /// # use time_macros::time;
     /// assert_eq!(Time::MIDNIGHT, time!(0:00));
     /// ```
-    pub const MIDNIGHT: Self = Self::MIN;
-
-    /// The smallest value that can be represented by `Time`.
-    ///
-    /// `00:00:00.0`
-    pub(crate) const MIN: Self =
+    #[doc(alias = "MIN")]
+    pub const MIDNIGHT: Self =
         Self::from_hms_nanos_ranged(Hours::MIN, Minutes::MIN, Seconds::MIN, Nanoseconds::MIN);
 
-    /// The largest value that can be represented by `Time`.
+    /// A `Time` that is one nanosecond before midnight. This is the largest possible value for a
+    /// `Time`.
     ///
-    /// `23:59:59.999_999_999`
-    pub(crate) const MAX: Self =
+    /// ```rust
+    /// # use time::Time;
+    /// # use time_macros::time;
+    /// assert_eq!(Time::MAX, time!(23:59:59.999_999_999));
+    /// ```
+    pub const MAX: Self =
         Self::from_hms_nanos_ranged(Hours::MAX, Minutes::MAX, Seconds::MAX, Nanoseconds::MAX);
 
     // region: constructors
@@ -656,7 +660,9 @@ impl Time {
     ///     time!(01:02:03.004_005_006).replace_millisecond(7),
     ///     Ok(time!(01:02:03.007))
     /// );
-    /// assert!(time!(01:02:03.004_005_006).replace_millisecond(1_000).is_err()); // 1_000 isn't a valid millisecond
+    /// assert!(time!(01:02:03.004_005_006)
+    ///     .replace_millisecond(1_000)
+    ///     .is_err()); // 1_000 isn't a valid millisecond
     /// ```
     #[must_use = "This method does not mutate the original `Time`."]
     pub const fn replace_millisecond(
@@ -676,7 +682,9 @@ impl Time {
     ///     time!(01:02:03.004_005_006).replace_microsecond(7_008),
     ///     Ok(time!(01:02:03.007_008))
     /// );
-    /// assert!(time!(01:02:03.004_005_006).replace_microsecond(1_000_000).is_err()); // 1_000_000 isn't a valid microsecond
+    /// assert!(time!(01:02:03.004_005_006)
+    ///     .replace_microsecond(1_000_000)
+    ///     .is_err()); // 1_000_000 isn't a valid microsecond
     /// ```
     #[must_use = "This method does not mutate the original `Time`."]
     pub const fn replace_microsecond(
@@ -696,7 +704,9 @@ impl Time {
     ///     time!(01:02:03.004_005_006).replace_nanosecond(7_008_009),
     ///     Ok(time!(01:02:03.007_008_009))
     /// );
-    /// assert!(time!(01:02:03.004_005_006).replace_nanosecond(1_000_000_000).is_err()); // 1_000_000_000 isn't a valid nanosecond
+    /// assert!(time!(01:02:03.004_005_006)
+    ///     .replace_nanosecond(1_000_000_000)
+    ///     .is_err()); // 1_000_000_000 isn't a valid nanosecond
     /// ```
     #[must_use = "This method does not mutate the original `Time`."]
     pub const fn replace_nanosecond(
@@ -717,7 +727,7 @@ impl Time {
         self,
         output: &mut impl io::Write,
         format: &(impl Formattable + ?Sized),
-    ) -> Result<usize, crate::error::Format> {
+    ) -> Result<usize, error::Format> {
         format.format_into(output, None, Some(self), None)
     }
 
@@ -730,10 +740,7 @@ impl Time {
     /// assert_eq!(time!(12:00).format(&format)?, "12:00:00");
     /// # Ok::<_, time::Error>(())
     /// ```
-    pub fn format(
-        self,
-        format: &(impl Formattable + ?Sized),
-    ) -> Result<String, crate::error::Format> {
+    pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
         format.format(None, Some(self), None)
     }
 }
@@ -800,7 +807,7 @@ impl SmartDisplay for Time {
             formatted_width,
             self,
             TimeMetadata {
-                subsecond_width: subsecond_width as _,
+                subsecond_width: subsecond_width.truncate(),
                 subsecond_value,
             },
         )
@@ -811,7 +818,7 @@ impl SmartDisplay for Time {
         f: &mut fmt::Formatter<'_>,
         metadata: Metadata<Self>,
     ) -> fmt::Result {
-        let subsecond_width = metadata.subsecond_width as usize;
+        let subsecond_width = metadata.subsecond_width.extend();
         let subsecond_value = metadata.subsecond_value;
 
         f.pad_with_width(
@@ -921,24 +928,25 @@ impl Sub for Time {
     /// assert_eq!(time!(0:00) - time!(23:00), (-23).hours());
     /// ```
     fn sub(self, rhs: Self) -> Self::Output {
-        let hour_diff = (self.hour.get() as i8) - (rhs.hour.get() as i8);
-        let minute_diff = (self.minute.get() as i8) - (rhs.minute.get() as i8);
-        let second_diff = (self.second.get() as i8) - (rhs.second.get() as i8);
-        let nanosecond_diff = (self.nanosecond.get() as i32) - (rhs.nanosecond.get() as i32);
+        let hour_diff = self.hour.get().cast_signed() - rhs.hour.get().cast_signed();
+        let minute_diff = self.minute.get().cast_signed() - rhs.minute.get().cast_signed();
+        let second_diff = self.second.get().cast_signed() - rhs.second.get().cast_signed();
+        let nanosecond_diff =
+            self.nanosecond.get().cast_signed() - rhs.nanosecond.get().cast_signed();
 
-        let seconds = hour_diff as i64 * Second::per(Hour) as i64
-            + minute_diff as i64 * Second::per(Minute) as i64
-            + second_diff as i64;
+        let seconds = hour_diff.extend::<i64>() * Second::per(Hour).cast_signed().extend::<i64>()
+            + minute_diff.extend::<i64>() * Second::per(Minute).cast_signed().extend::<i64>()
+            + second_diff.extend::<i64>();
 
         let (seconds, nanoseconds) = if seconds > 0 && nanosecond_diff < 0 {
             (
                 seconds - 1,
-                nanosecond_diff + Nanosecond::per(Second) as i32,
+                nanosecond_diff + Nanosecond::per(Second).cast_signed(),
             )
         } else if seconds < 0 && nanosecond_diff > 0 {
             (
                 seconds + 1,
-                nanosecond_diff - Nanosecond::per(Second) as i32,
+                nanosecond_diff - Nanosecond::per(Second).cast_signed(),
             )
         } else {
             (seconds, nanosecond_diff)

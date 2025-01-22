@@ -299,7 +299,7 @@
 //! [macro]: crate::json
 //! [`serde-json-core`]: https://github.com/rust-embedded-community/serde-json-core
 
-#![doc(html_root_url = "https://docs.rs/serde_json/1.0.113")]
+#![doc(html_root_url = "https://docs.rs/serde_json/1.0.109")]
 // Ignored clippy lints
 #![allow(
     clippy::collapsible_else_if,
@@ -316,7 +316,6 @@
     clippy::needless_late_init,
     clippy::return_self_not_must_use,
     clippy::transmute_ptr_to_ptr,
-    clippy::unconditional_recursion, // https://github.com/rust-lang/rust-clippy/issues/12133
     clippy::unnecessary_wraps
 )]
 // Ignored clippy_pedantic lints

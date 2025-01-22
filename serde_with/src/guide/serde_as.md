@@ -1,7 +1,7 @@
 # `serde_as` Annotation
 
-This is an alternative to serde's with-annotation.
-It is more flexible and composable, but work with fewer types.
+This is an alternative to serde's `with` annotation.
+It is more flexible and composable, but works with fewer types.
 
 The scheme is based on two new traits, [`SerializeAs`] and [`DeserializeAs`], which need to be implemented by all types which want to be compatible with `serde_as`.
 The proc-macro attribute [`#[serde_as]`][crate::serde_as] exists as a usability boost for users.
@@ -44,6 +44,7 @@ Combined, this looks like:
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 
+# #[allow(dead_code)]
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 struct A {
@@ -52,7 +53,7 @@ struct A {
 }
 ```
 
-The main advantage is that you can compose `serde_as` stuff, which is impossible with the with-annotation.
+The main advantage is that you can compose `serde_as` stuff, which is impossible with the `with` annotation.
 For example, the `mime` field from above could be nested in one or more data structures:
 
 ```rust
@@ -60,6 +61,7 @@ For example, the `mime` field from above could be nested in one or more data str
 # use serde::{Deserialize, Serialize};
 # use serde_with::{serde_as, DisplayFromStr};
 #
+# #[allow(dead_code)]
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 struct A {
@@ -76,6 +78,7 @@ This means the field can still be missing during deserialization and will be fil
 This "magic" can break in some cases. Then it becomes necessary to apply `#[serde(default)]` on the field in question.
 If the field is of type `Option<T>` and the conversion type is of `Option<S>`, the default attribute is automatically applied.
 These variants are detected as `Option`.
+
 * `Option`
 * `std::option::Option`, with or without leading `::`
 * `core::option::Option`, with or without leading `::`
@@ -87,11 +90,12 @@ For more information, you can inspect the documentation of the `serde_as` macro.
 # use serde::{Deserialize, Serialize};
 # use serde_with::{serde_as, DisplayFromStr};
 #
+# #[allow(dead_code)]
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 struct A {
     #[serde_as(as = "Option<DisplayFromStr>")]
-    // In this situation boths `Option`s will be correctly identified and
+    // In this situation both `Option`s will be correctly identified and
     // `#[serde(default)]` will be applied on this field.
     val: Option<u32>,
 }
@@ -106,7 +110,7 @@ Gating `serde_as` behind optional features is possible using the `cfg_eval` attr
 The attribute is available via the [`cfg_eval`-crate](https://docs.rs/cfg_eval) on stable or using the [Rust attribute](https://doc.rust-lang.org/1.70.0/core/prelude/v1/attr.cfg_eval.html) on unstable nightly.
 
 The `cfg_eval` attribute must be placed **before** the struct-level `serde_as` attribute.
-You can combine them together in a single `cfg_attr`, as long as the order is preserved.
+You can combine them in a single `cfg_attr`, as long as the order is preserved.
 
 ```rust,ignore
 #[cfg_attr(feature="serde", cfg_eval::cfg_eval, serde_as)]
@@ -121,8 +125,8 @@ struct Struct {
 
 You can support [`SerializeAs`] / [`DeserializeAs`] on your own types too.
 Most "leaf" types do not need to implement these traits, since they are supported implicitly.
-"Leaf" type refers to types which directly serialize like plain data types.
-[`SerializeAs`] / [`DeserializeAs`] is very important for collection types, like `Vec` or `BTreeMap`, since they need special handling for the key/value de/serialization such that the conversions can be done on the key/values.
+"Leaf" types refer to types which directly serialize, like plain data types.
+[`SerializeAs`] / [`DeserializeAs`] is essential for collection types, like `Vec` or `BTreeMap`, since they need special handling for the key/value de/serialization such that the conversions can be done on the key/values.
 You also find them implemented on the conversion types, such as the [`DisplayFromStr`] type.
 These comprise the bulk of this crate and allow you to perform all the nice conversions to [hex strings], the [bytes to string converter], or [duration to UNIX epoch].
 
@@ -144,7 +148,7 @@ Our goal is to serialize this `Data` struct.
 Currently, we do not have anything we can use to replace `???` with, since `_` only works if `RemoteType` would implement `Serialize`, which it does not.
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 #[serde_as]
 #[derive(serde::Serialize)]
 struct Data {
@@ -159,7 +163,7 @@ The `SerializeAs` implementation is **always** written for a local type.
 This allows it to seamlessly work with types from dependencies without running into orphan rule problems.
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 struct LocalType;
 
 impl SerializeAs<RemoteType> for LocalType {
@@ -182,13 +186,13 @@ impl<'de> DeserializeAs<'de, RemoteType> for LocalType {
 # }
 ```
 
-This is how the final implementation looks like.
-We assumed we have a module `MODULE` with a `serialize` function already, which we use here to provide the implementation.
+This is what the final implementation looks like.
+We assumed we already have a module `MODULE` with a `serialize` function, which we use here to provide the implementation.
 As can be seen, this is mostly boilerplate, since the most part is encapsulated in `$module::serialize`.
 The final `Data` struct will now look like:
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 #[serde_as]
 #[derive(serde::Serialize)]
 struct Data {
@@ -205,7 +209,7 @@ This is a special functionality of serde, where it derives the de/serialization 
 You can find all the details in the [official serde documentation](https://serde.rs/remote-derive.html).
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 // Pretend that this is somebody else's crate, not a module.
 mod other_crate {
     // Neither Serde nor the other crate provides Serialize and Deserialize
@@ -238,7 +242,7 @@ We can write this implementation.
 The implementation for `DeserializeAs` works analogue.
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 impl SerializeAs<Duration> for DurationDef {
     fn serialize_as<S>(value: &Duration, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -253,7 +257,7 @@ impl SerializeAs<Duration> for DurationDef {
 This now allows us to use `Duration` for serialization.
 
 ```rust
-# #[cfg(FALSE)] {
+# #[cfg(any())] {
 use other_crate::Duration;
 
 #[serde_as]

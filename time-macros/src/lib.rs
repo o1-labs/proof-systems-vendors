@@ -68,7 +68,7 @@ enum FormatDescriptionVersion {
 #[cfg(any(feature = "formatting", feature = "parsing"))]
 enum VersionOrModuleName {
     Version(FormatDescriptionVersion),
-    #[cfg_attr(not(feature = "serde"), allow(unused_tuple_struct_fields))]
+    #[cfg_attr(not(feature = "serde"), allow(dead_code))]
     ModuleName(Ident),
 }
 
@@ -151,7 +151,7 @@ pub fn format_description(input: TokenStream) -> TokenStream {
         let items = format_description::parse_with_version(version, &string, span)?;
 
         Ok(quote! {{
-            const DESCRIPTION: &[::time::format_description::FormatItem<'_>] = &[#S(
+            const DESCRIPTION: &[::time::format_description::BorrowedFormatItem<'_>] = &[#S(
                 items
                     .into_iter()
                     .map(|item| quote! { #S(item), })
@@ -212,7 +212,8 @@ pub fn serde_format_description(input: TokenStream) -> TokenStream {
                 let items: TokenStream =
                     items.into_iter().map(|item| quote! { #S(item), }).collect();
                 let items = quote! {
-                    const ITEMS: &[::time::format_description::FormatItem<'_>] = &[#S(items)];
+                    const ITEMS: &[::time::format_description::BorrowedFormatItem<'_>]
+                        = &[#S(items)];
                     ITEMS
                 };
 
@@ -222,22 +223,7 @@ pub fn serde_format_description(input: TokenStream) -> TokenStream {
             Some(_) => {
                 let tokens = tokens.collect::<TokenStream>();
                 let tokens_string = tokens.to_string();
-                (
-                    quote! {{
-                        // We can't just do `super::path` because the path could be an absolute
-                        // path. In that case, we'd be generating `super::::path`, which is invalid.
-                        // Even if we took that into account, it's not possible to know if it's an
-                        // external crate, which would just require emitting `path` directly. By
-                        // taking this approach, we can leave it to the compiler to do the actual
-                        // resolution.
-                        mod __path_hack {
-                            pub(super) use super::super::*;
-                            pub(super) use #S(tokens) as FORMAT;
-                        }
-                        __path_hack::FORMAT
-                    }},
-                    tokens_string,
-                )
+                (tokens, tokens_string)
             }
             None => return Err(Error::UnexpectedEndOfInput),
         };

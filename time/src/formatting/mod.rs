@@ -2,8 +2,11 @@
 
 pub(crate) mod formattable;
 mod iso8601;
+
 use core::num::NonZeroU8;
 use std::io;
+
+use num_conv::prelude::*;
 
 pub use self::formattable::Formattable;
 use crate::convert::*;
@@ -46,7 +49,11 @@ pub(crate) fn write(output: &mut impl io::Write, bytes: &[u8]) -> io::Result<usi
 
 /// If `pred` is true, write all bytes to the output, returning the number of bytes written.
 pub(crate) fn write_if(output: &mut impl io::Write, pred: bool, bytes: &[u8]) -> io::Result<usize> {
-    if pred { write(output, bytes) } else { Ok(0) }
+    if pred {
+        write(output, bytes)
+    } else {
+        Ok(0)
+    }
 }
 
 /// If `pred` is true, write `true_bytes` to the output. Otherwise, write `false_bytes`.
@@ -71,14 +78,18 @@ pub(crate) fn format_float(
 ) -> io::Result<usize> {
     match digits_after_decimal {
         Some(digits_after_decimal) => {
-            let digits_after_decimal = digits_after_decimal.get() as usize;
-            let width = digits_before_decimal as usize + 1 + digits_after_decimal;
+            // Truncate the decimal points up to the precision
+            let trunc_num = 10_f64.powi(digits_after_decimal.get().cast_signed().extend());
+            let value = f64::trunc(value * trunc_num) / trunc_num;
+
+            let digits_after_decimal = digits_after_decimal.get().extend();
+            let width = digits_before_decimal.extend::<usize>() + 1 + digits_after_decimal;
             write!(output, "{value:0>width$.digits_after_decimal$}")?;
             Ok(width)
         }
         None => {
             let value = value.trunc() as u64;
-            let width = digits_before_decimal as usize;
+            let width = digits_before_decimal.extend();
             write!(output, "{value:0>width$}")?;
             Ok(width)
         }
@@ -207,9 +218,17 @@ fn fmt_month(
     }: modifier::Month,
 ) -> Result<usize, io::Error> {
     match repr {
-        modifier::MonthRepr::Numerical => format_number::<2>(output, date.month() as u8, padding),
-        modifier::MonthRepr::Long => write(output, MONTH_NAMES[date.month() as usize - 1]),
-        modifier::MonthRepr::Short => write(output, &MONTH_NAMES[date.month() as usize - 1][..3]),
+        modifier::MonthRepr::Numerical => {
+            format_number::<2>(output, u8::from(date.month()), padding)
+        }
+        modifier::MonthRepr::Long => write(
+            output,
+            MONTH_NAMES[u8::from(date.month()).extend::<usize>() - 1],
+        ),
+        modifier::MonthRepr::Short => write(
+            output,
+            &MONTH_NAMES[u8::from(date.month()).extend::<usize>() - 1][..3],
+        ),
     }
 }
 
@@ -235,20 +254,20 @@ fn fmt_weekday(
     match repr {
         modifier::WeekdayRepr::Short => write(
             output,
-            &WEEKDAY_NAMES[date.weekday().number_days_from_monday() as usize][..3],
+            &WEEKDAY_NAMES[date.weekday().number_days_from_monday().extend::<usize>()][..3],
         ),
         modifier::WeekdayRepr::Long => write(
             output,
-            WEEKDAY_NAMES[date.weekday().number_days_from_monday() as usize],
+            WEEKDAY_NAMES[date.weekday().number_days_from_monday().extend::<usize>()],
         ),
         modifier::WeekdayRepr::Sunday => format_number::<1>(
             output,
-            date.weekday().number_days_from_sunday() + one_indexed as u8,
+            date.weekday().number_days_from_sunday() + u8::from(one_indexed),
             modifier::Padding::None,
         ),
         modifier::WeekdayRepr::Monday => format_number::<1>(
             output,
-            date.weekday().number_days_from_monday() + one_indexed as u8,
+            date.weekday().number_days_from_monday() + u8::from(one_indexed),
             modifier::Padding::None,
         ),
     }
@@ -289,6 +308,7 @@ fn fmt_year(
     };
     let value = match repr {
         modifier::YearRepr::Full => full_year,
+        modifier::YearRepr::Century => full_year / 100,
         modifier::YearRepr::LastTwo => (full_year % 100).abs(),
     };
     let format_number = match repr {
@@ -297,7 +317,11 @@ fn fmt_year(
         #[cfg(feature = "large-dates")]
         modifier::YearRepr::Full if value.abs() >= 10_000 => format_number::<5>,
         modifier::YearRepr::Full => format_number::<4>,
-        modifier::YearRepr::LastTwo => format_number::<2>,
+        #[cfg(feature = "large-dates")]
+        modifier::YearRepr::Century if value.abs() >= 1_000 => format_number::<4>,
+        #[cfg(feature = "large-dates")]
+        modifier::YearRepr::Century if value.abs() >= 100 => format_number::<3>,
+        modifier::YearRepr::Century | modifier::YearRepr::LastTwo => format_number::<2>,
     };
     let mut bytes = 0;
     if repr != modifier::YearRepr::LastTwo {
@@ -447,10 +471,7 @@ fn fmt_unix_timestamp(
         sign_is_mandatory,
     }: modifier::UnixTimestamp,
 ) -> Result<usize, io::Error> {
-    let date_time = date
-        .with_time(time)
-        .assume_offset(offset)
-        .to_offset(UtcOffset::UTC);
+    let date_time = OffsetDateTime::new_in_offset(date, time, offset).to_offset(UtcOffset::UTC);
 
     if date_time < OffsetDateTime::UNIX_EPOCH {
         write(output, b"-")?;
@@ -464,13 +485,15 @@ fn fmt_unix_timestamp(
         }
         modifier::UnixTimestampPrecision::Millisecond => format_number_pad_none(
             output,
-            (date_time.unix_timestamp_nanos() / Nanosecond::per(Millisecond) as i128)
-                .unsigned_abs(),
+            (date_time.unix_timestamp_nanos()
+                / Nanosecond::per(Millisecond).cast_signed().extend::<i128>())
+            .unsigned_abs(),
         ),
         modifier::UnixTimestampPrecision::Microsecond => format_number_pad_none(
             output,
-            (date_time.unix_timestamp_nanos() / Nanosecond::per(Microsecond) as i128)
-                .unsigned_abs(),
+            (date_time.unix_timestamp_nanos()
+                / Nanosecond::per(Microsecond).cast_signed().extend::<i128>())
+            .unsigned_abs(),
         ),
         modifier::UnixTimestampPrecision::Nanosecond => {
             format_number_pad_none(output, date_time.unix_timestamp_nanos().unsigned_abs())

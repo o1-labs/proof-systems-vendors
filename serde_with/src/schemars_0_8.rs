@@ -2,22 +2,25 @@
 //!
 //! This module is only available if using the `schemars_0_8` feature of the crate.
 //!
-//! If you would like to add support for schemars to your own serde_with helpers
+//! If you would like to add support for schemars to your own `serde_with` helpers
 //! see [`JsonSchemaAs`].
 
 use crate::{
-    formats::{Flexible, Format, Separator, Strict},
+    formats::{Flexible, Format, PreferMany, PreferOne, Separator, Strict},
     prelude::{Schema as WrapSchema, *},
 };
 use ::schemars_0_8::{
     gen::SchemaGenerator,
     schema::{
-        ArrayValidation, InstanceType, Metadata, NumberValidation, Schema, SchemaObject,
-        SubschemaValidation,
+        ArrayValidation, InstanceType, Metadata, NumberValidation, ObjectValidation, Schema,
+        SchemaObject, SingleOrVec, SubschemaValidation,
     },
     JsonSchema,
 };
-use std::borrow::Cow;
+use core::{
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+};
 
 //===================================================================
 // Trait Definition
@@ -46,6 +49,7 @@ use std::borrow::Cow;
 /// use schemars::schema::Schema;
 /// use schemars::JsonSchema;
 ///
+/// # #[allow(dead_code)]
 /// struct PositiveInt;
 ///
 /// impl SerializeAs<i32> for PositiveInt {
@@ -107,7 +111,10 @@ pub trait JsonSchemaAs<T: ?Sized> {
 
     /// The name of the generated JSON Schema.
     ///
-    /// This is used as the title for root schemas, and the key within the root's `definitions` property for subschemas.
+    /// This is used as the title for root schemas, and the key within the root's `definitions` property for sub-schemas.
+    ///
+    /// As the schema name is used as as part of `$ref` it has to be a valid URI path segment according to
+    /// [RFC 3986 Section-3](https://datatracker.ietf.org/doc/html/rfc3986#section-3).
     fn schema_name() -> String;
 
     /// Returns a string that uniquely identifies the schema produced by this type.
@@ -492,6 +499,15 @@ impl<T, U: JsonSchema> JsonSchemaAs<T> for TryFromIntoRef<U> {
     forward_schema!(U);
 }
 
+impl<T, TA, FA> JsonSchemaAs<T> for IfIsHumanReadable<TA, FA>
+where
+    TA: JsonSchemaAs<T>,
+{
+    // serde_json always has `is_human_readable` set to true so we just use the
+    // schema for the human readable variant.
+    forward_schema!(WrapSchema<T, TA>);
+}
+
 macro_rules! schema_for_map {
     ($type:ty) => {
         impl<K, V, KA, VA> JsonSchemaAs<$type> for Map<KA, VA>
@@ -516,6 +532,233 @@ where
     VA: JsonSchemaAs<V>,
 {
     forward_schema!(WrapSchema<BTreeMap<K, V>, BTreeMap<KA, VA>>);
+}
+
+impl<T> JsonSchemaAs<Vec<T>> for EnumMap
+where
+    T: JsonSchema,
+{
+    fn schema_name() -> String {
+        std::format!("EnumMap({})", T::schema_name())
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        std::format!("serde_with::EnumMap({})", T::schema_id()).into()
+    }
+
+    // We generate the schema here by going through all the variants of the
+    // enum (the oneOf property) and sticking all their properties onto an
+    // object.
+    //
+    // This will be wrong if the object is not an externally tagged enum but in
+    // that case serialization and deserialization will fail so it is probably
+    // OK.
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let mut object = SchemaObject {
+            instance_type: Some(InstanceType::Object.into()),
+            ..Default::default()
+        };
+        let inner = T::json_schema(gen).into_object();
+
+        let one_of = match inner.subschemas {
+            Some(subschemas) => match subschemas.one_of {
+                Some(one_of) => one_of,
+                None => return object.into(),
+            },
+            None => return object.into(),
+        };
+
+        let properties = &mut object.object().properties;
+        for schema in one_of {
+            if let Some(object) = schema.into_object().object {
+                properties.extend(object.properties.into_iter());
+            }
+        }
+
+        object.object().additional_properties = Some(Box::new(Schema::Bool(false)));
+        object.into()
+    }
+
+    fn is_referenceable() -> bool {
+        true
+    }
+}
+
+impl<T, TA> WrapSchema<Vec<T>, KeyValueMap<TA>>
+where
+    TA: JsonSchemaAs<T>,
+{
+    /// Transform a schema from the entry type of a `KeyValueMap<T>` to the
+    /// resulting field type.
+    ///
+    /// This usually means doing one of two things:
+    /// 1. removing the `$key$` property from an object, or,
+    /// 2. removing the first item from an array.
+    ///
+    /// We also need to adjust any fields that control the number of items or
+    /// properties allowed such as `(max|min)_properties` or `(max|min)_items`.
+    ///
+    /// This is mostly straightforward. Where things get hairy is when dealing
+    /// with subschemas. JSON schemas allow you to build the schema for an
+    /// object by combining multiple subschemas:
+    /// - You can match exactly one of a set of subschemas (`one_of`).
+    /// - You can match any of a set of subschemas (`any_of`).
+    /// - You can match all of a set of subschemas (`all_of`).
+    ///
+    /// Unfortunately for us, we need to handle all of these options by recursing
+    /// into the subschemas and applying the same transformations as above.
+    fn kvmap_transform_schema(gen: &mut SchemaGenerator, schema: &mut Schema) {
+        let mut parents = Vec::new();
+
+        Self::kvmap_transform_schema_impl(gen, schema, &mut parents, 0);
+    }
+
+    fn kvmap_transform_schema_impl(
+        gen: &mut SchemaGenerator,
+        schema: &mut Schema,
+        parents: &mut Vec<String>,
+        depth: u32,
+    ) {
+        if depth > 8 {
+            return;
+        }
+
+        let mut done = false;
+        let schema = match schema {
+            Schema::Object(schema) => schema,
+            _ => return,
+        };
+
+        // The schema is a reference to a schema defined elsewhere.
+        //
+        // If possible we replace it with its definition but if that is not
+        // available then we give up and leave it as-is.
+        let mut parents = if let Some(reference) = &schema.reference {
+            let name = match reference.strip_prefix(&gen.settings().definitions_path) {
+                Some(name) => name,
+                // Reference is defined elsewhere, nothing we can do.
+                None => return,
+            };
+
+            // We are in a recursive reference loop. No point in continuing.
+            if parents.iter().any(|parent| parent == name) {
+                return;
+            }
+
+            let name = name.to_owned();
+            *schema = match gen.definitions().get(&name) {
+                Some(Schema::Object(schema)) => schema.clone(),
+                _ => return,
+            };
+
+            parents.push(name);
+            DropGuard::new(parents, |parents| drop(parents.pop()))
+        } else {
+            DropGuard::unguarded(parents)
+        };
+
+        if let Some(object) = &mut schema.object {
+            // For objects KeyValueMap uses the $key$ property so we need to remove it from
+            // the inner schema.
+
+            done |= object.properties.remove("$key$").is_some();
+            done |= object.required.remove("$key$");
+
+            if let Some(max) = &mut object.max_properties {
+                *max = max.saturating_sub(1);
+            }
+
+            if let Some(min) = &mut object.max_properties {
+                *min = min.saturating_sub(1);
+            }
+        }
+
+        if let Some(array) = &mut schema.array {
+            // For arrays KeyValueMap uses the first array element so we need to remove it
+            // from the inner schema.
+
+            if let Some(SingleOrVec::Vec(items)) = &mut array.items {
+                // If the array is empty then the leading element may be following the
+                // additionalItem schema. In that case we do nothing.
+                if !items.is_empty() {
+                    items.remove(0);
+                    done = true;
+                }
+            }
+
+            if let Some(max) = &mut array.max_items {
+                *max = max.saturating_sub(1);
+            }
+
+            if let Some(min) = &mut array.min_items {
+                *min = min.saturating_sub(1);
+            }
+        }
+
+        // We've already modified the schema so there's no need to do more work.
+        if done {
+            return;
+        }
+
+        let subschemas = match &mut schema.subschemas {
+            Some(subschemas) => subschemas,
+            None => return,
+        };
+
+        if let Some(one_of) = &mut subschemas.one_of {
+            for subschema in one_of {
+                Self::kvmap_transform_schema_impl(gen, subschema, &mut parents, depth + 1);
+            }
+        }
+
+        if let Some(any_of) = &mut subschemas.any_of {
+            for subschema in any_of {
+                Self::kvmap_transform_schema_impl(gen, subschema, &mut parents, depth + 1);
+            }
+        }
+
+        if let Some(all_of) = &mut subschemas.all_of {
+            for subschema in all_of {
+                Self::kvmap_transform_schema_impl(gen, subschema, &mut parents, depth + 1);
+            }
+        }
+    }
+}
+
+impl<T, TA> JsonSchemaAs<Vec<T>> for KeyValueMap<TA>
+where
+    TA: JsonSchemaAs<T>,
+{
+    fn schema_name() -> String {
+        std::format!("KeyValueMap({})", <WrapSchema<T, TA>>::schema_name())
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        std::format!(
+            "serde_with::KeyValueMap({})",
+            <WrapSchema<T, TA>>::schema_id()
+        )
+        .into()
+    }
+
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let mut value = <WrapSchema<T, TA>>::json_schema(gen);
+        <WrapSchema<Vec<T>, KeyValueMap<TA>>>::kvmap_transform_schema(gen, &mut value);
+
+        SchemaObject {
+            instance_type: Some(InstanceType::Object.into()),
+            object: Some(Box::new(ObjectValidation {
+                additional_properties: Some(Box::new(value)),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+
+    fn is_referenceable() -> bool {
+        true
+    }
 }
 
 impl<K, V, KA, VA, const N: usize> JsonSchemaAs<[(K, V); N]> for Map<KA, VA>
@@ -547,10 +790,178 @@ map_first_last_wins_schema!(BTreeMap<K, V>);
 map_first_last_wins_schema!(=> S HashMap<K, V, S>);
 #[cfg(feature = "hashbrown_0_14")]
 map_first_last_wins_schema!(=> S hashbrown_0_14::HashMap<K, V, S>);
+#[cfg(feature = "hashbrown_0_15")]
+map_first_last_wins_schema!(=> S hashbrown_0_15::HashMap<K, V, S>);
 #[cfg(feature = "indexmap_1")]
 map_first_last_wins_schema!(=> S indexmap_1::IndexMap<K, V, S>);
 #[cfg(feature = "indexmap_2")]
 map_first_last_wins_schema!(=> S indexmap_2::IndexMap<K, V, S>);
+
+impl<T, TA> JsonSchemaAs<Vec<T>> for OneOrMany<TA, PreferOne>
+where
+    TA: JsonSchemaAs<T>,
+{
+    fn schema_name() -> String {
+        std::format!(
+            "OneOrMany({},PreferOne)",
+            <WrapSchema<T, TA>>::schema_name()
+        )
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        std::format!(
+            "serde_with::OneOrMany({},PreferOne)",
+            <WrapSchema<T, TA>>::schema_id()
+        )
+        .into()
+    }
+
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let single = gen.subschema_for::<WrapSchema<T, TA>>();
+        let array = SchemaObject {
+            instance_type: Some(InstanceType::Array.into()),
+            array: Some(Box::new(ArrayValidation {
+                items: Some(single.clone().into()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        SchemaObject {
+            subschemas: Some(Box::new(SubschemaValidation {
+                any_of: Some(std::vec![single, array.into()]),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+impl<T, TA> JsonSchemaAs<Vec<T>> for OneOrMany<TA, PreferMany>
+where
+    TA: JsonSchemaAs<T>,
+{
+    fn schema_name() -> String {
+        std::format!(
+            "OneOrMany<{}, PreferMany>",
+            <WrapSchema<T, TA>>::schema_name()
+        )
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        std::format!(
+            "serde_with::OneOrMany<{}, PreferMany>",
+            <WrapSchema<T, TA>>::schema_id()
+        )
+        .into()
+    }
+
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let inner = gen.subschema_for::<WrapSchema<T, TA>>();
+        let single = SchemaObject {
+            metadata: Some(Box::new(Metadata {
+                write_only: true,
+                ..Default::default()
+            })),
+            subschemas: Some(Box::new(SubschemaValidation {
+                all_of: Some(std::vec![inner.clone()]),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let array = SchemaObject {
+            instance_type: Some(InstanceType::Array.into()),
+            array: Some(Box::new(ArrayValidation {
+                items: Some(Schema::from(single.clone()).into()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        SchemaObject {
+            subschemas: Some(Box::new(SubschemaValidation {
+                any_of: Some(std::vec![single.into(), array.into()]),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+macro_rules! schema_for_pickfirst {
+    ($( $param:ident )+) => {
+        impl<T, $($param,)+> JsonSchemaAs<T> for PickFirst<($( $param, )+)>
+        where
+            $( $param: JsonSchemaAs<T>, )+
+        {
+            fn schema_name() -> String {
+                std::format!(
+                    concat!(
+                        "PickFirst(",
+                        $( "{", stringify!($param), "}", )+
+                        ")"
+                    ),
+                    $( $param = <WrapSchema<T, $param>>::schema_name(), )+
+                )
+            }
+
+            fn schema_id() -> Cow<'static, str> {
+                std::format!(
+                    concat!(
+                        "serde_with::PickFirst(",
+                        $( "{", stringify!($param), "}", )+
+                        ")"
+                    ),
+                    $( $param = <WrapSchema<T, $param>>::schema_id(), )+
+                )
+                .into()
+            }
+
+            fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+                let mut first = true;
+                let subschemas = std::vec![$(
+                    {
+                        let is_first = std::mem::replace(&mut first, false);
+                        let schema = gen.subschema_for::<WrapSchema<T, $param>>();
+
+                        if !is_first {
+                            SchemaObject {
+                                metadata: Some(Box::new(Metadata {
+                                    write_only: true,
+                                    ..Default::default()
+                                })),
+                                subschemas: Some(Box::new(SubschemaValidation {
+                                    all_of: Some(std::vec![schema]),
+                                    ..Default::default()
+                                })),
+                                ..Default::default()
+                            }
+                            .into()
+                        } else {
+                            schema
+                        }
+                    }
+                ),+];
+
+                SchemaObject {
+                    subschemas: Some(Box::new(SubschemaValidation {
+                        any_of: Some(subschemas),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                }
+                .into()
+            }
+        }
+    }
+}
+
+schema_for_pickfirst!(A);
+schema_for_pickfirst!(A B);
+schema_for_pickfirst!(A B C);
+schema_for_pickfirst!(A B C D);
 
 impl<T, TA> JsonSchemaAs<T> for SetLastValueWins<TA>
 where
@@ -571,7 +982,7 @@ where
         )
     }
 
-    fn json_schema(gen: &mut ::schemars_0_8::gen::SchemaGenerator) -> Schema {
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
         let schema = <WrapSchema<T, TA> as JsonSchema>::json_schema(gen);
         let mut schema = schema.into_object();
 
@@ -706,9 +1117,9 @@ mod timespan {
 
 use self::timespan::{TimespanSchemaTarget, TimespanTargetType};
 
-/// Internal type used for the base impls on DurationXXX and TimestampYYY types.
+/// Internal type used for the base impls on `DurationXXX` and `TimestampYYY` types.
 ///
-/// This allows the JsonSchema impls that are Strict to be generic without
+/// This allows the `JsonSchema` impls that are Strict to be generic without
 /// committing to it as part of the public API.
 struct Timespan<Format, Strictness>(PhantomData<(Format, Strictness)>);
 
@@ -843,3 +1254,52 @@ forward_duration_schema!(TimestampSecondsWithFrac);
 forward_duration_schema!(TimestampMilliSecondsWithFrac);
 forward_duration_schema!(TimestampMicroSecondsWithFrac);
 forward_duration_schema!(TimestampNanoSecondsWithFrac);
+
+//===================================================================
+// Extra internal helper structs
+
+struct DropGuard<T, F: FnOnce(T)> {
+    value: ManuallyDrop<T>,
+    guard: Option<F>,
+}
+
+impl<T, F: FnOnce(T)> DropGuard<T, F> {
+    pub fn new(value: T, guard: F) -> Self {
+        Self {
+            value: ManuallyDrop::new(value),
+            guard: Some(guard),
+        }
+    }
+
+    pub fn unguarded(value: T) -> Self {
+        Self {
+            value: ManuallyDrop::new(value),
+            guard: None,
+        }
+    }
+}
+
+impl<T, F: FnOnce(T)> Deref for DropGuard<T, F> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T, F: FnOnce(T)> DerefMut for DropGuard<T, F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl<T, F: FnOnce(T)> Drop for DropGuard<T, F> {
+    fn drop(&mut self) {
+        // SAFETY: value is known to be initialized since we only ever remove it here.
+        let value = unsafe { ManuallyDrop::take(&mut self.value) };
+
+        if let Some(guard) = self.guard.take() {
+            guard(value);
+        }
+    }
+}

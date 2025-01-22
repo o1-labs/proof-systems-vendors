@@ -41,7 +41,7 @@
 //!
 //! - `serde`
 //!
-//!   Enables [serde](https://docs.rs/serde) support for all types except [`Instant`].
+//!   Enables [serde](https://docs.rs/serde) support for all types.
 //!
 //! - `serde-human-readable` (_implicitly enables `serde`, `formatting`, and `parsing`_)
 //!
@@ -52,21 +52,13 @@
 //!   Libraries should never enable this feature, as the decision of what format to use should be up
 //!   to the user.
 //!
-//! - `serde-well-known` (_implicitly enables `serde-human-readable`_)
-//!
-//!   _This feature flag is deprecated and will be removed in a future breaking release. Use the
-//!   `serde-human-readable` feature instead._
-//!
-//!   Enables support for serializing and deserializing well-known formats using serde's
-//!   [`#[with]` attribute](https://serde.rs/field-attrs.html#with).
-//!
 //! - `rand`
 //!
 //!   Enables [rand](https://docs.rs/rand) support for all types.
 //!
 //! - `quickcheck` (_implicitly enables `alloc`_)
 //!
-//!   Enables [quickcheck](https://docs.rs/quickcheck) support for all types except [`Instant`].
+//!   Enables [quickcheck](https://docs.rs/quickcheck) support for all types.
 //!
 //! - `wasm-bindgen`
 //!
@@ -75,8 +67,8 @@
 //!   well as obtaining the UTC offset from JavaScript.
 
 #![doc(html_playground_url = "https://play.rust-lang.org")]
-#![cfg_attr(__time_03_docs, feature(doc_auto_cfg, doc_notable_trait))]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_notable_trait))]
+#![no_std]
 #![doc(html_favicon_url = "https://avatars0.githubusercontent.com/u/55999857")]
 #![doc(html_logo_url = "https://avatars0.githubusercontent.com/u/55999857")]
 #![doc(test(attr(deny(warnings))))]
@@ -85,8 +77,10 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(feature = "std")]
+extern crate std;
+
 mod date;
-mod date_time;
 mod duration;
 pub mod error;
 pub mod ext;
@@ -122,10 +116,11 @@ mod weekday;
 pub use time_core::convert;
 
 pub use crate::date::Date;
-use crate::date_time::DateTime;
 pub use crate::duration::Duration;
 pub use crate::error::Error;
+#[doc(hidden)]
 #[cfg(feature = "std")]
+#[allow(deprecated)]
 pub use crate::instant::Instant;
 pub use crate::month::Month;
 pub use crate::offset_date_time::OffsetDateTime;

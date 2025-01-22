@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.20.10 (July 9, 2024)
+
+-  Add `#[allow(clippy::manual_unwrap_or_default)]` to all generated impls to avoid causing clippy fails in crates using `darling` [#296](https://github.com/TedDriggs/darling/pull/296)
+-  Properly initialize `attrs` magic field in derived `FromAttributes` impls [#297](https://github.com/TedDriggs/darling/pull/297)
+
+## v0.20.9 (May 15, 2024)
+
+-  Allow word-form for newtype enum variants whose only field produces a value when `from_none` is called on their type [#249](https://github.com/TedDriggs/darling/issues/249)
+-  Add `FromMeta` impls for the `std::num::NonZero*` types [#288](https://github.com/TedDriggs/darling/pull/288)
+-  Fix panic in number `FromMeta` impls when the parsed value is too large for the receiver type [#289](https://github.com/TedDriggs/darling/issues/289)
+
+## v0.20.8 (February 23, 2024)
+
+-  Add `#[darling(with = ...)]` support to `attrs` magic field to allow using custom receiver types for `attrs` [#273](https://github.com/TedDriggs/darling/issues/273)
+
+## v0.20.7 (February 22, 2024)
+
+-  Add `#[darling(flatten)]` to allow forwarding unknown fields to another struct [#146](https://github.com/TedDriggs/darling/issues/146)
+-  Don't suggest names of skipped fields in derived impls [#268](https://github.com/TedDriggs/darling/issues/268)
+
+## v0.20.6 (February 14, 2024)
+
+-  Fix some missing syn invisible group handling in `FromMeta` impls [#263](https://github.com/TedDriggs/darling/pull/263)
+-  Fix misleading error message on `Error::unexpected_type` so it no longer implies the type was a literal [#264](https://github.com/TedDriggs/darling/pull/264)
+-  Impl `FromMeta` `Vec` of literals, e.g. `LitStr` [#265](https://github.com/TedDriggs/pull/265)
+
 ## v0.20.5 (January 30, 2024)
 
 - Add `Flag::span` inherent method, as `Flag` can no longer impl `syn::spanned::Spanned` [#242](https://github.com/TedDriggs/darling/issues/242)
