@@ -4,7 +4,7 @@ use std::convert::TryFrom;
 use std::io::BufRead;
 use std::path::PathBuf;
 
-use crate::windows::setup_config::{EnumSetupInstances, SetupInstance};
+use crate::setup_config::{EnumSetupInstances, SetupInstance};
 
 pub enum VsInstance {
     Com(SetupInstance),
@@ -73,7 +73,7 @@ impl TryFrom<&Vec<u8>> for VswhereInstance {
     fn try_from(output: &Vec<u8>) -> Result<Self, Self::Error> {
         let map: HashMap<_, _> = output
             .lines()
-            .map_while(Result::ok)
+            .filter_map(Result::ok)
             .filter_map(|s| {
                 let mut splitn = s.splitn(2, ": ");
                 Some((splitn.next()?.to_owned(), splitn.next()?.to_owned()))
