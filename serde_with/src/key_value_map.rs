@@ -188,7 +188,7 @@ where
             type Value = Vec<T>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a map")
+                write!(formatter, "a map")
             }
 
             fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
@@ -307,9 +307,9 @@ where
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T: ?Sized>(self, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
@@ -331,18 +331,18 @@ where
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_newtype_struct<T>(
+    fn serialize_newtype_struct<T: ?Sized>(
         self,
         _name: &'static str,
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_newtype_variant<T>(
+    fn serialize_newtype_variant<T: ?Sized>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -350,7 +350,7 @@ where
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
@@ -428,9 +428,9 @@ where
     type Ok = M::Ok;
     type Error = M::Error;
 
-    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         value.serialize(ElementAsKeyValueSerializer {
             delegate: &mut self.delegate,
@@ -536,9 +536,9 @@ where
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T: ?Sized>(self, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
@@ -560,18 +560,18 @@ where
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_newtype_struct<T>(
+    fn serialize_newtype_struct<T: ?Sized>(
         self,
         _name: &'static str,
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
 
-    fn serialize_newtype_variant<T>(
+    fn serialize_newtype_variant<T: ?Sized>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -579,7 +579,7 @@ where
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         Err(SerError::custom("wrong type for KeyValueMap"))
     }
@@ -679,9 +679,9 @@ where
     type Ok = ();
     type Error = M::Error;
 
-    fn serialize_element<T>(&mut self, element: &T) -> Result<(), Self::Error>
+    fn serialize_element<T: ?Sized>(&mut self, element: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         let element: SerContent =
             element.serialize(ContentSerializer::new(self.is_human_readable))?;
@@ -720,9 +720,9 @@ where
     type Ok = ();
     type Error = M::Error;
 
-    fn serialize_element<T>(&mut self, element: &T) -> Result<(), Self::Error>
+    fn serialize_element<T: ?Sized>(&mut self, element: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         let element: SerContent =
             element.serialize(ContentSerializer::new(self.is_human_readable))?;
@@ -762,9 +762,9 @@ where
     type Ok = ();
     type Error = M::Error;
 
-    fn serialize_field<T>(&mut self, field: &T) -> Result<(), Self::Error>
+    fn serialize_field<T: ?Sized>(&mut self, field: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         let field: SerContent = field.serialize(ContentSerializer::new(self.is_human_readable))?;
         if self.key.is_none() {
@@ -804,9 +804,9 @@ where
     type Ok = ();
     type Error = M::Error;
 
-    fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         let key: SerContent = key.serialize(ContentSerializer::new(self.is_human_readable))?;
         if key.as_str() == Some(MAP_KEY_IDENTIFIER) {
@@ -817,9 +817,9 @@ where
         Ok(())
     }
 
-    fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         let value: SerContent = value.serialize(ContentSerializer::new(self.is_human_readable))?;
 
@@ -865,9 +865,13 @@ where
     type Ok = ();
     type Error = M::Error;
 
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T: ?Sized>(
+        &mut self,
+        key: &'static str,
+        value: &T,
+    ) -> Result<(), Self::Error>
     where
-        T: Serialize + ?Sized,
+        T: Serialize,
     {
         // Serialize to a Content type first
         let value: SerContent = value.serialize(ContentSerializer::new(self.is_human_readable))?;

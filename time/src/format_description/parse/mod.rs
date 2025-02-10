@@ -3,8 +3,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::{error, format_description};
-
 /// A helper macro to make version restrictions simpler to read and write.
 macro_rules! version {
     ($range:expr) => {
@@ -42,7 +40,8 @@ impl<const N: usize> Version<N> {
 /// `parse_borrowed`.
 pub fn parse(
     s: &str,
-) -> Result<Vec<format_description::BorrowedFormatItem<'_>>, error::InvalidFormatDescription> {
+) -> Result<Vec<crate::format_description::FormatItem<'_>>, crate::error::InvalidFormatDescription>
+{
     parse_borrowed::<1>(s)
 }
 
@@ -53,7 +52,8 @@ pub fn parse(
 /// description is provided as the const parameter. **It is recommended to use version 2.**
 pub fn parse_borrowed<const VERSION: usize>(
     s: &str,
-) -> Result<Vec<format_description::BorrowedFormatItem<'_>>, error::InvalidFormatDescription> {
+) -> Result<Vec<crate::format_description::FormatItem<'_>>, crate::error::InvalidFormatDescription>
+{
     validate_version!(VERSION);
     let mut lexed = lexer::lex::<VERSION>(s.as_bytes());
     let ast = ast::parse::<_, VERSION>(&mut lexed);
@@ -75,12 +75,14 @@ pub fn parse_borrowed<const VERSION: usize>(
 /// [`OwnedFormatItem`]: crate::format_description::OwnedFormatItem
 pub fn parse_owned<const VERSION: usize>(
     s: &str,
-) -> Result<format_description::OwnedFormatItem, error::InvalidFormatDescription> {
+) -> Result<crate::format_description::OwnedFormatItem, crate::error::InvalidFormatDescription> {
     validate_version!(VERSION);
     let mut lexed = lexer::lex::<VERSION>(s.as_bytes());
     let ast = ast::parse::<_, VERSION>(&mut lexed);
     let format_items = format_item::parse(ast);
-    let items = format_items.collect::<Result<Box<_>, _>>()?;
+    let items = format_items
+        .map(|res| res.map(Into::into))
+        .collect::<Result<Box<_>, _>>()?;
     Ok(items.into())
 }
 
@@ -220,10 +222,10 @@ struct Error {
     /// The internal error.
     _inner: Unused<ErrorInner>,
     /// The error needed for interoperability with the rest of `time`.
-    public: error::InvalidFormatDescription,
+    public: crate::error::InvalidFormatDescription,
 }
 
-impl From<Error> for error::InvalidFormatDescription {
+impl From<Error> for crate::error::InvalidFormatDescription {
     fn from(error: Error) -> Self {
         error.public
     }
@@ -237,6 +239,7 @@ impl From<Error> for error::InvalidFormatDescription {
 struct Unused<T>(core::marker::PhantomData<T>);
 
 /// Indicate that a value is currently unused.
+#[allow(clippy::missing_const_for_fn)] // false positive
 fn unused<T>(_: T) -> Unused<T> {
     Unused(core::marker::PhantomData)
 }

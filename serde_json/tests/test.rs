@@ -14,9 +14,6 @@
     clippy::vec_init_then_push,
     clippy::zero_sized_map_values
 )]
-#![cfg_attr(feature = "trace-macros", feature(trace_macros))]
-#[cfg(feature = "trace-macros")]
-trace_macros!(true);
 
 #[macro_use]
 mod macros;
@@ -33,11 +30,12 @@ use serde_json::{
     from_reader, from_slice, from_str, from_value, json, to_string, to_string_pretty, to_value,
     to_vec, Deserializer, Number, Value,
 };
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 #[cfg(feature = "raw_value")]
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
+use std::hash::BuildHasher;
+#[cfg(feature = "raw_value")]
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter;
@@ -160,16 +158,28 @@ fn test_write_f64() {
 
 #[test]
 fn test_encode_nonfinite_float_yields_null() {
-    let v = to_value(::std::f64::NAN).unwrap();
+    let v = to_value(::std::f64::NAN.copysign(1.0)).unwrap();
+    assert!(v.is_null());
+
+    let v = to_value(::std::f64::NAN.copysign(-1.0)).unwrap();
     assert!(v.is_null());
 
     let v = to_value(::std::f64::INFINITY).unwrap();
     assert!(v.is_null());
 
-    let v = to_value(::std::f32::NAN).unwrap();
+    let v = to_value(-::std::f64::INFINITY).unwrap();
+    assert!(v.is_null());
+
+    let v = to_value(::std::f32::NAN.copysign(1.0)).unwrap();
+    assert!(v.is_null());
+
+    let v = to_value(::std::f32::NAN.copysign(-1.0)).unwrap();
     assert!(v.is_null());
 
     let v = to_value(::std::f32::INFINITY).unwrap();
+    assert!(v.is_null());
+
+    let v = to_value(-::std::f32::INFINITY).unwrap();
     assert!(v.is_null());
 }
 
@@ -1452,7 +1462,6 @@ fn test_serialize_seq_with_no_len() {
     where
         T: ser::Serialize,
     {
-        #[inline]
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: ser::Serializer,
@@ -1479,7 +1488,6 @@ fn test_serialize_seq_with_no_len() {
             formatter.write_str("array")
         }
 
-        #[inline]
         fn visit_unit<E>(self) -> Result<MyVec<T>, E>
         where
             E: de::Error,
@@ -1487,7 +1495,6 @@ fn test_serialize_seq_with_no_len() {
             Ok(MyVec(Vec::new()))
         }
 
-        #[inline]
         fn visit_seq<V>(self, mut visitor: V) -> Result<MyVec<T>, V::Error>
         where
             V: de::SeqAccess<'de>,
@@ -1538,7 +1545,6 @@ fn test_serialize_map_with_no_len() {
         K: ser::Serialize + Ord,
         V: ser::Serialize,
     {
-        #[inline]
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: ser::Serializer,
@@ -1566,7 +1572,6 @@ fn test_serialize_map_with_no_len() {
             formatter.write_str("map")
         }
 
-        #[inline]
         fn visit_unit<E>(self) -> Result<MyMap<K, V>, E>
         where
             E: de::Error,
@@ -1574,7 +1579,6 @@ fn test_serialize_map_with_no_len() {
             Ok(MyMap(BTreeMap::new()))
         }
 
-        #[inline]
         fn visit_map<Visitor>(self, mut visitor: Visitor) -> Result<MyMap<K, V>, Visitor::Error>
         where
             Visitor: de::MapAccess<'de>,
@@ -1658,17 +1662,6 @@ fn test_deserialize_from_stream() {
     let response = Message::deserialize(&mut de).unwrap();
 
     assert_eq!(request, response);
-}
-
-#[test]
-fn test_serialize_rejects_bool_keys() {
-    let map = treemap!(
-        true => 2,
-        false => 4,
-    );
-
-    let err = to_vec(&map).unwrap_err();
-    assert_eq!(err.to_string(), "key must be a string");
 }
 
 #[test]
@@ -2022,6 +2015,14 @@ fn test_deny_non_finite_f64_key() {
     let map = treemap!(F64Bits(f64::NAN.to_bits()) => "x".to_owned());
     assert!(serde_json::to_string(&map).is_err());
     assert!(serde_json::to_value(map).is_err());
+}
+
+#[test]
+fn test_boolean_key() {
+    let map = treemap!(false => 0, true => 1);
+    let j = r#"{"false":0,"true":1}"#;
+    test_encode_ok(&[(&map, j)]);
+    test_parse_ok(vec![(j, map)]);
 }
 
 #[test]
@@ -2478,25 +2479,27 @@ fn test_value_into_deserializer() {
     let mut map = BTreeMap::new();
     map.insert("inner", json!({ "string": "Hello World" }));
 
+    let outer = Outer::deserialize(serde::de::value::MapDeserializer::new(
+        map.iter().map(|(k, v)| (*k, v)),
+    ))
+    .unwrap();
+    assert_eq!(outer.inner.string, "Hello World");
+
     let outer = Outer::deserialize(map.into_deserializer()).unwrap();
     assert_eq!(outer.inner.string, "Hello World");
 }
 
 #[test]
 fn hash_positive_and_negative_zero() {
-    fn hash(obj: impl Hash) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        obj.hash(&mut hasher);
-        hasher.finish()
-    }
+    let rand = std::hash::RandomState::new();
 
     let k1 = serde_json::from_str::<Number>("0.0").unwrap();
     let k2 = serde_json::from_str::<Number>("-0.0").unwrap();
     if cfg!(feature = "arbitrary_precision") {
         assert_ne!(k1, k2);
-        assert_ne!(hash(k1), hash(k2));
+        assert_ne!(rand.hash_one(k1), rand.hash_one(k2));
     } else {
         assert_eq!(k1, k2);
-        assert_eq!(hash(k1), hash(k2));
+        assert_eq!(rand.hash_one(k1), rand.hash_one(k2));
     }
 }

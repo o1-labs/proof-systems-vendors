@@ -113,8 +113,12 @@ where
     }
 }
 
+pub(crate) fn duration_as_secs_f64(dur: &Duration) -> f64 {
+    (dur.as_secs() as f64) + (dur.subsec_nanos() as f64) / (NANOS_PER_SEC as f64)
+}
+
 pub(crate) fn duration_signed_from_secs_f64(secs: f64) -> Result<DurationSigned, &'static str> {
-    const MAX_NANOS_F64: f64 = ((u64::MAX as u128 + 1) * (NANOS_PER_SEC as u128)) as f64;
+    const MAX_NANOS_F64: f64 = ((u64::max_value() as u128 + 1) * (NANOS_PER_SEC as u128)) as f64;
     // TODO why are the seconds converted to nanoseconds first?
     // Does it make sense to just truncate the value?
     let mut nanos = secs * (NANOS_PER_SEC as f64);
@@ -124,13 +128,13 @@ pub(crate) fn duration_signed_from_secs_f64(secs: f64) -> Result<DurationSigned,
     if nanos >= MAX_NANOS_F64 {
         return Err("overflow when converting float to duration");
     }
-    let mut sign = Sign::Positive;
+    let mut sign = self::duration::Sign::Positive;
     if nanos < 0.0 {
         nanos = -nanos;
-        sign = Sign::Negative;
+        sign = self::duration::Sign::Negative;
     }
     let nanos = nanos as u128;
-    Ok(DurationSigned::new(
+    Ok(self::duration::DurationSigned::new(
         sign,
         (nanos / (NANOS_PER_SEC as u128)) as u64,
         (nanos % (NANOS_PER_SEC as u128)) as u32,
@@ -167,6 +171,9 @@ where
     // TODO could be simplified with nightly maybe_uninit_uninit_array feature
     // https://doc.rust-lang.org/nightly/std/mem/union.MaybeUninit.html#method.uninit_array
 
+    // Clippy is broken and has a false positive here
+    // https://github.com/rust-lang/rust-clippy/issues/10551
+    #[allow(clippy::uninit_assumed_init)]
     let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
 
     // Dropping a `MaybeUninit` does nothing. Thus using raw pointer

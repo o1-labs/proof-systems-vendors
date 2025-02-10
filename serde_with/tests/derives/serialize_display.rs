@@ -10,7 +10,7 @@ struct A {
 
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("->{} <> {}<-", self.a, self.b))
+        write!(f, "->{} <> {}<-", self.a, self.b)
     }
 }
 

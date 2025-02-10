@@ -1,7 +1,5 @@
 //! The [`UtcOffset`] struct and its associated `impl`s.
 
-#[cfg(feature = "formatting")]
-use alloc::string::String;
 use core::fmt;
 use core::ops::Neg;
 #[cfg(feature = "formatting")]

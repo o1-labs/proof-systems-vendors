@@ -3,6 +3,7 @@
 //! mostly in dealing with its bucket "pointers".
 
 use super::{equivalent, get_hash, Bucket, HashValue, IndexMapCore};
+use core::fmt;
 use hashbrown::raw::RawTable;
 
 type RawBucket = hashbrown::raw::Bucket<usize>;
@@ -20,12 +21,9 @@ pub(super) fn insert_bulk_no_grow<K, V>(indices: &mut RawTable<usize>, entries: 
     }
 }
 
-#[cfg(feature = "test_debug")]
 pub(super) struct DebugIndices<'a>(pub &'a RawTable<usize>);
-
-#[cfg(feature = "test_debug")]
-impl core::fmt::Debug for DebugIndices<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for DebugIndices<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: we're not letting any of the buckets escape this function
         let indices = unsafe { self.0.iter().map(|raw_bucket| *raw_bucket.as_ref()) };
         f.debug_list().entries(indices).finish()
@@ -83,17 +81,14 @@ impl<K, V> IndexMapCore<K, V> {
         let entries = &*self.entries;
         let eq = move |&i: &usize| is_match(&entries[i].key);
         match self.indices.find(hash.get(), eq) {
-            // SAFETY: The bucket is valid because we *just* found it in this map.
-            Some(raw_bucket) => Ok(unsafe { RawTableEntry::new(self, raw_bucket) }),
+            // SAFETY: The entry is created with a live raw bucket, at the same time
+            // we have a &mut reference to the map, so it can not be modified further.
+            Some(raw_bucket) => Ok(RawTableEntry {
+                map: self,
+                raw_bucket,
+            }),
             None => Err(self),
         }
-    }
-
-    pub(super) fn index_raw_entry(&mut self, index: usize) -> Option<RawTableEntry<'_, K, V>> {
-        let hash = self.entries.get(index)?.hash;
-        let raw_bucket = self.indices.find(hash.get(), move |&i| i == index)?;
-        // SAFETY: The bucket is valid because we *just* found it in this map.
-        Some(unsafe { RawTableEntry::new(self, raw_bucket) })
     }
 
     pub(super) fn indices_mut(&mut self) -> impl Iterator<Item = &mut usize> {
@@ -116,13 +111,6 @@ pub(super) struct RawTableEntry<'a, K, V> {
 unsafe impl<K: Sync, V: Sync> Sync for RawTableEntry<'_, K, V> {}
 
 impl<'a, K, V> RawTableEntry<'a, K, V> {
-    /// The caller must ensure that the `raw_bucket` is valid in the given `map`,
-    /// and then we hold the `&mut` reference for exclusive access.
-    #[inline]
-    unsafe fn new(map: &'a mut IndexMapCore<K, V>, raw_bucket: RawBucket) -> Self {
-        Self { map, raw_bucket }
-    }
-
     /// Return the index of the key-value pair
     #[inline]
     pub(super) fn index(&self) -> usize {
@@ -152,13 +140,6 @@ impl<'a, K, V> RawTableEntry<'a, K, V> {
         // SAFETY: This is safe because it can only happen once (self is consumed)
         // and map.indices have not been modified since entry construction
         let (index, _slot) = unsafe { self.map.indices.remove(self.raw_bucket) };
-        (self.map, index)
-    }
-
-    /// Take no action, just return the index and the original map reference.
-    #[inline]
-    pub(super) fn into_inner(self) -> (&'a mut IndexMapCore<K, V>, usize) {
-        let index = self.index();
         (self.map, index)
     }
 }

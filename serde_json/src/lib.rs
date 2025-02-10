@@ -55,10 +55,9 @@
 //! ```
 //!
 //! A string of JSON data can be parsed into a `serde_json::Value` by the
-//! [`serde_json::from_str`][from_str] function. There is also
-//! [`from_slice`][from_slice] for parsing from a byte slice &[u8] and
-//! [`from_reader`][from_reader] for parsing from any `io::Read` like a File or
-//! a TCP stream.
+//! [`serde_json::from_str`][from_str] function. There is also [`from_slice`]
+//! for parsing from a byte slice &\[u8\] and [`from_reader`] for parsing from
+//! any `io::Read` like a File or a TCP stream.
 //!
 //! ```
 //! use serde_json::{Result, Value};
@@ -300,7 +299,7 @@
 //! [macro]: crate::json
 //! [`serde-json-core`]: https://github.com/rust-embedded-community/serde-json-core
 
-#![doc(html_root_url = "https://docs.rs/serde_json/1.0.103")]
+#![doc(html_root_url = "https://docs.rs/serde_json/1.0.113")]
 // Ignored clippy lints
 #![allow(
     clippy::collapsible_else_if,
@@ -317,6 +316,7 @@
     clippy::needless_late_init,
     clippy::return_self_not_must_use,
     clippy::transmute_ptr_to_ptr,
+    clippy::unconditional_recursion, // https://github.com/rust-lang/rust-clippy/issues/12133
     clippy::unnecessary_wraps
 )]
 // Ignored clippy_pedantic lints
@@ -366,6 +366,7 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 #[doc(inline)]
 pub use crate::de::from_reader;
 #[doc(inline)]
@@ -375,6 +376,7 @@ pub use crate::error::{Error, Result};
 #[doc(inline)]
 pub use crate::ser::{to_string, to_string_pretty, to_vec, to_vec_pretty};
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 #[doc(inline)]
 pub use crate::ser::{to_writer, to_writer_pretty, Serializer};
 #[doc(inline)]

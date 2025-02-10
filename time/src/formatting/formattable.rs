@@ -1,15 +1,11 @@
 //! A trait that can be used to format an item from its components.
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use core::ops::Deref;
 use std::io;
 
-use num_conv::prelude::*;
-
 use crate::format_description::well_known::iso8601::EncodedConfig;
 use crate::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
-use crate::format_description::{BorrowedFormatItem, OwnedFormatItem};
+use crate::format_description::{FormatItem, OwnedFormatItem};
 use crate::formatting::{
     format_component, format_number_pad_zero, iso8601, write, MONTH_NAMES, WEEKDAY_NAMES,
 };
@@ -23,8 +19,8 @@ use crate::{error, Date, Time, UtcOffset};
 /// a String from their data. See the respective methods for usage examples.
 #[cfg_attr(__time_03_docs, doc(notable_trait))]
 pub trait Formattable: sealed::Sealed {}
-impl Formattable for BorrowedFormatItem<'_> {}
-impl Formattable for [BorrowedFormatItem<'_>] {}
+impl Formattable for FormatItem<'_> {}
+impl Formattable for [FormatItem<'_>] {}
 impl Formattable for OwnedFormatItem {}
 impl Formattable for [OwnedFormatItem] {}
 impl Formattable for Rfc3339 {}
@@ -63,7 +59,7 @@ mod sealed {
 }
 
 // region: custom formats
-impl sealed::Sealed for BorrowedFormatItem<'_> {
+impl sealed::Sealed for FormatItem<'_> {
     fn format_into(
         &self,
         output: &mut impl io::Write,
@@ -84,7 +80,7 @@ impl sealed::Sealed for BorrowedFormatItem<'_> {
     }
 }
 
-impl sealed::Sealed for [BorrowedFormatItem<'_>] {
+impl sealed::Sealed for [FormatItem<'_>] {
     fn format_into(
         &self,
         output: &mut impl io::Write,
@@ -179,17 +175,14 @@ impl sealed::Sealed for Rfc2822 {
 
         bytes += write(
             output,
-            &WEEKDAY_NAMES[date.weekday().number_days_from_monday().extend::<usize>()][..3],
+            &WEEKDAY_NAMES[date.weekday().number_days_from_monday() as usize][..3],
         )?;
         bytes += write(output, b", ")?;
         bytes += format_number_pad_zero::<2>(output, day)?;
         bytes += write(output, b" ")?;
-        bytes += write(
-            output,
-            &MONTH_NAMES[u8::from(month).extend::<usize>() - 1][..3],
-        )?;
+        bytes += write(output, &MONTH_NAMES[month as usize - 1][..3])?;
         bytes += write(output, b" ")?;
-        bytes += format_number_pad_zero::<4>(output, year.cast_unsigned())?;
+        bytes += format_number_pad_zero::<4>(output, year as u32)?;
         bytes += write(output, b" ")?;
         bytes += format_number_pad_zero::<2>(output, time.hour())?;
         bytes += write(output, b":")?;
@@ -231,9 +224,9 @@ impl sealed::Sealed for Rfc3339 {
             return Err(error::Format::InvalidComponent("offset_second"));
         }
 
-        bytes += format_number_pad_zero::<4>(output, year.cast_unsigned())?;
+        bytes += format_number_pad_zero::<4>(output, year as u32)?;
         bytes += write(output, b"-")?;
-        bytes += format_number_pad_zero::<2>(output, u8::from(date.month()))?;
+        bytes += format_number_pad_zero::<2>(output, date.month() as u8)?;
         bytes += write(output, b"-")?;
         bytes += format_number_pad_zero::<2>(output, date.day())?;
         bytes += write(output, b"T")?;

@@ -34,8 +34,6 @@
 /// // Supports both flattened
 /// let j = r#" {"i":1} "#;
 /// assert!(serde_json::from_str::<S>(j).is_ok());
-/// # // Ensure the t field is not dead code
-/// # assert_eq!(serde_json::from_str::<S>(j).unwrap().t.i, 1);
 ///
 /// // and non-flattened versions.
 /// let j = r#" {"t":{"i":1}} "#;
@@ -66,7 +64,7 @@ macro_rules! flattened_maybe {
                 serde,
             };
 
-            #[derive($crate::serde_derive::Deserialize)]
+            #[derive($crate::serde::Deserialize)]
             #[serde(crate = "serde")]
             pub struct Both<T> {
                 #[serde(flatten)]

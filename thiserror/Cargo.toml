@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "thiserror"
-version = "1.0.43"
+version = "1.0.56"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "derive(Error)"
 documentation = "https://docs.rs/thiserror"
@@ -28,13 +28,14 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/dtolnay/thiserror"
 
 [package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies.thiserror-impl]
-version = "=1.0.43"
+version = "=1.0.56"
 
 [dev-dependencies.anyhow]
-version = "1.0.71"
+version = "1.0.73"
 
 [dev-dependencies.ref-cast]
 version = "1.0.18"

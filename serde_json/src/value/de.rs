@@ -482,6 +482,14 @@ impl<'de> IntoDeserializer<'de, Error> for Value {
     }
 }
 
+impl<'de> IntoDeserializer<'de, Error> for &'de Value {
+    type Deserializer = Self;
+
+    fn into_deserializer(self) -> Self::Deserializer {
+        self
+    }
+}
+
 struct VariantDeserializer {
     value: Option<Value>,
 }
@@ -1175,6 +1183,22 @@ impl<'de> serde::Deserializer<'de> for MapKeyDeserializer<'de> {
     deserialize_numeric_key!(deserialize_i128, do_deserialize_i128);
     deserialize_numeric_key!(deserialize_u128, do_deserialize_u128);
 
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Error>
+    where
+        V: Visitor<'de>,
+    {
+        if self.key == "true" {
+            visitor.visit_bool(true)
+        } else if self.key == "false" {
+            visitor.visit_bool(false)
+        } else {
+            Err(serde::de::Error::invalid_type(
+                Unexpected::Str(&self.key),
+                &visitor,
+            ))
+        }
+    }
+
     #[inline]
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Error>
     where
@@ -1211,8 +1235,8 @@ impl<'de> serde::Deserializer<'de> for MapKeyDeserializer<'de> {
     }
 
     forward_to_deserialize_any! {
-        bool char str string bytes byte_buf unit unit_struct seq tuple
-        tuple_struct map struct identifier ignored_any
+        char str string bytes byte_buf unit unit_struct seq tuple tuple_struct
+        map struct identifier ignored_any
     }
 }
 

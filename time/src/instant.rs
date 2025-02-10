@@ -1,7 +1,5 @@
 //! The [`Instant`] struct and its associated `impl`s.
 
-#![allow(deprecated)]
-
 use core::borrow::Borrow;
 use core::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use core::ops::{Add, Sub};
@@ -28,7 +26,6 @@ use crate::Duration;
 ///
 /// This implementation allows for operations with signed [`Duration`]s, but is otherwise identical
 /// to [`std::time::Instant`].
-#[deprecated(since = "0.3.35", note = "import `time::ext::InstantExt` instead")]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant(pub StdInstant);
@@ -38,7 +35,6 @@ impl Instant {
     /// Returns an `Instant` corresponding to "now".
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
     /// # use time::Instant;
     /// println!("{:?}", Instant::now());
     /// ```
@@ -50,7 +46,6 @@ impl Instant {
     /// be nonnegative if the instant is not synthetically created.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
     /// # use time::{Instant, ext::{NumericalStdDuration, NumericalDuration}};
     /// # use std::thread;
     /// let instant = Instant::now();
@@ -68,7 +63,6 @@ impl Instant {
     /// otherwise.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
     /// # use time::{Instant, ext::NumericalDuration};
     /// let now = Instant::now();
     /// assert_eq!(now.checked_add(5.seconds()), Some(now + 5.seconds()));
@@ -90,7 +84,6 @@ impl Instant {
     /// otherwise.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
     /// # use time::{Instant, ext::NumericalDuration};
     /// let now = Instant::now();
     /// assert_eq!(now.checked_sub(5.seconds()), Some(now - 5.seconds()));
@@ -111,7 +104,6 @@ impl Instant {
     /// Obtain the inner [`std::time::Instant`].
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
     /// # use time::Instant;
     /// let now = Instant::now();
     /// assert_eq!(now.into_inner(), now.0);

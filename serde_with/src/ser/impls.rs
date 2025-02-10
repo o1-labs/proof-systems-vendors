@@ -1,5 +1,4 @@
-pub(crate) use self::macros::*;
-use crate::{formats::Strictness, prelude::*};
+use crate::{formats, formats::Strictness, prelude::*};
 #[cfg(feature = "hashbrown_0_14")]
 use hashbrown_0_14::{HashMap as HashbrownMap014, HashSet as HashbrownSet014};
 #[cfg(feature = "indexmap_1")]
@@ -13,15 +12,8 @@ use indexmap_2::{IndexMap as IndexMap2, IndexSet as IndexSet2};
 #[cfg(feature = "alloc")]
 type BoxedSlice<T> = Box<[T]>;
 type Slice<T> = [T];
-type Ref<'a, T> = &'a T;
-type RefMut<'a, T> = &'a mut T;
 
-pub(crate) mod macros {
-    // The unused_imports lint has false-positives around macros
-    // https://github.com/rust-lang/rust/issues/78894
-    #![allow(unused_imports)]
-
-    macro_rules! foreach_map {
+macro_rules! foreach_map {
     ($m:ident) => {
         #[cfg(feature = "alloc")]
         $m!(BTreeMap<K, V>);
@@ -35,8 +27,9 @@ pub(crate) mod macros {
         $m!(IndexMap2<K, V, H: Sized>);
     };
 }
+pub(crate) use foreach_map;
 
-    macro_rules! foreach_set {
+macro_rules! foreach_set {
     ($m:ident, $T:tt) => {
         #[cfg(feature = "alloc")]
         $m!(BTreeSet<$T>);
@@ -53,55 +46,33 @@ pub(crate) mod macros {
         foreach_set!($m, T);
     };
 }
+pub(crate) use foreach_set;
 
-    macro_rules! foreach_seq {
-        ($m:ident, $T:tt) => {
-            foreach_set!($m, $T);
+macro_rules! foreach_seq {
+    ($m:ident, $T:tt) => {
+        foreach_set!($m, $T);
 
-            $m!(Slice<$T>);
+        $m!(Slice<$T>);
 
-            #[cfg(feature = "alloc")]
-            $m!(BinaryHeap<$T>);
-            #[cfg(feature = "alloc")]
-            $m!(BoxedSlice<$T>);
-            #[cfg(feature = "alloc")]
-            $m!(LinkedList<$T>);
-            #[cfg(feature = "alloc")]
-            $m!(Vec<$T>);
-            #[cfg(feature = "alloc")]
-            $m!(VecDeque<$T>);
-        };
-        ($m:
-            ident) => {
-            foreach_seq!($m, T);
-        };
-    }
-
-    // Make the macros available to the rest of the crate
-    pub(crate) use foreach_map;
-    pub(crate) use foreach_seq;
-    pub(crate) use foreach_set;
+        #[cfg(feature = "alloc")]
+        $m!(BinaryHeap<$T>);
+        #[cfg(feature = "alloc")]
+        $m!(BoxedSlice<$T>);
+        #[cfg(feature = "alloc")]
+        $m!(LinkedList<$T>);
+        #[cfg(feature = "alloc")]
+        $m!(Vec<$T>);
+        #[cfg(feature = "alloc")]
+        $m!(VecDeque<$T>);
+    };
+    ($m:ident) => {
+        foreach_seq!($m, T);
+    };
 }
+pub(crate) use foreach_seq;
 
 ///////////////////////////////////////////////////////////////////////////////
 // region: Simple Wrapper types (e.g., Box, Option)
-
-#[allow(unused_macros)]
-macro_rules! pinned_wrapper {
-    ($wrapper:ident $($lifetime:lifetime)?) => {
-        impl<$($lifetime,)? T, U> SerializeAs<Pin<$wrapper<$($lifetime,)? T>>> for Pin<$wrapper<$($lifetime,)? U>>
-        where
-            U: SerializeAs<T>,
-        {
-            fn serialize_as<S>(source: &Pin<$wrapper<$($lifetime,)? T>>, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                SerializeAsWrap::<T, U>::new(source).serialize(serializer)
-            }
-        }
-    };
-}
 
 impl<'a, T, U> SerializeAs<&'a T> for &'a U
 where
@@ -131,9 +102,6 @@ where
     }
 }
 
-pinned_wrapper!(Ref 'a);
-pinned_wrapper!(RefMut 'a);
-
 #[cfg(feature = "alloc")]
 impl<T, U> SerializeAs<Box<T>> for Box<U>
 where
@@ -146,9 +114,6 @@ where
         SerializeAsWrap::<T, U>::new(source).serialize(serializer)
     }
 }
-
-#[cfg(feature = "alloc")]
-pinned_wrapper!(Box);
 
 impl<T, U> SerializeAs<Option<T>> for Option<U>
 where
@@ -197,9 +162,6 @@ where
 }
 
 #[cfg(feature = "alloc")]
-pinned_wrapper!(Rc);
-
-#[cfg(feature = "alloc")]
 impl<T, U> SerializeAs<RcWeak<T>> for RcWeak<U>
 where
     U: SerializeAs<T>,
@@ -225,9 +187,6 @@ where
         SerializeAsWrap::<T, U>::new(source).serialize(serializer)
     }
 }
-
-#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
-pinned_wrapper!(Arc);
 
 #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 impl<T, U> SerializeAs<ArcWeak<T>> for ArcWeak<U>
@@ -556,6 +515,19 @@ where
         } else {
             F::serialize_as(source, serializer)
         }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T, U> SerializeAs<Vec<T>> for VecSkipError<U>
+where
+    U: SerializeAs<T>,
+{
+    fn serialize_as<S>(source: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Vec::<U>::serialize_as(source, serializer)
     }
 }
 

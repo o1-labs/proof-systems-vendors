@@ -84,7 +84,7 @@ impl ReplaceReceiver<'_> {
             self.visit_type_mut_impl(ty);
             return;
         };
-        *ty = Type::Path(self.self_ty(span));
+        *ty = self.self_ty(span).into();
     }
 
     // `Self::Assoc` -> `<Receiver>::Assoc`

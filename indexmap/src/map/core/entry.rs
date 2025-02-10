@@ -1,5 +1,5 @@
 use super::raw::RawTableEntry;
-use super::IndexMapCore;
+use super::{get_hash, IndexMapCore};
 use crate::HashValue;
 use core::{fmt, mem};
 
@@ -144,10 +144,6 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
         &self.raw.bucket().key
     }
 
-    pub(crate) fn key_mut(&mut self) -> &mut K {
-        &mut self.raw.bucket_mut().key
-    }
-
     /// Gets a reference to the entry's value in the map.
     pub fn get(&self) -> &V {
         &self.raw.bucket().value
@@ -241,36 +237,6 @@ impl<'a, K, V> OccupiedEntry<'a, K, V> {
         let (map, index) = self.raw.remove_index();
         map.shift_remove_finish(index)
     }
-
-    /// Moves the position of the entry to a new index
-    /// by shifting all other entries in-between.
-    ///
-    /// This is equivalent to [`IndexMap::move_index`][`crate::IndexMap::move_index`]
-    /// coming `from` the current [`.index()`][Self::index].
-    ///
-    /// * If `self.index() < to`, the other pairs will shift down while the targeted pair moves up.
-    /// * If `self.index() > to`, the other pairs will shift up while the targeted pair moves down.
-    ///
-    /// ***Panics*** if `to` is out of bounds.
-    ///
-    /// Computes in **O(n)** time (average).
-    pub fn move_index(self, to: usize) {
-        let (map, index) = self.raw.into_inner();
-        map.move_index(index, to);
-    }
-
-    /// Swaps the position of entry with another.
-    ///
-    /// This is equivalent to [`IndexMap::swap_indices`][`crate::IndexMap::swap_indices`]
-    /// with the current [`.index()`][Self::index] as one of the two being swapped.
-    ///
-    /// ***Panics*** if the `other` index is out of bounds.
-    ///
-    /// Computes in **O(1)** time (average).
-    pub fn swap_indices(self, other: usize) {
-        let (map, index) = self.raw.into_inner();
-        map.swap_indices(index, other)
-    }
 }
 
 impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for OccupiedEntry<'_, K, V> {
@@ -279,17 +245,6 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for OccupiedEntry<'_, K, V> {
             .field("key", self.key())
             .field("value", self.get())
             .finish()
-    }
-}
-
-impl<'a, K, V> From<IndexedEntry<'a, K, V>> for OccupiedEntry<'a, K, V> {
-    fn from(entry: IndexedEntry<'a, K, V>) -> Self {
-        Self {
-            raw: entry
-                .map
-                .index_raw_entry(entry.index)
-                .expect("index not found"),
-        }
     }
 }
 
@@ -312,10 +267,6 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
         &self.key
     }
 
-    pub(crate) fn key_mut(&mut self) -> &mut K {
-        &mut self.key
-    }
-
     /// Takes ownership of the key, leaving the entry vacant.
     pub fn into_key(self) -> K {
         self.key
@@ -324,39 +275,12 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
     /// Inserts the entry's key and the given value into the map, and returns a mutable reference
     /// to the value.
     pub fn insert(self, value: V) -> &'a mut V {
+        let i = self.index();
         let Self { map, hash, key } = self;
-        let i = map.insert_unique(hash, key, value);
+        map.indices.insert(hash.get(), i, get_hash(&map.entries));
+        debug_assert_eq!(i, map.entries.len());
+        map.push_entry(hash, key, value);
         &mut map.entries[i].value
-    }
-
-    /// Inserts the entry's key and the given value into the map at its ordered
-    /// position among sorted keys, and returns the new index and a mutable
-    /// reference to the value.
-    ///
-    /// If the existing keys are **not** already sorted, then the insertion
-    /// index is unspecified (like [`slice::binary_search`]), but the key-value
-    /// pair is inserted at that position regardless.
-    ///
-    /// Computes in **O(n)** time (average).
-    pub fn insert_sorted(self, value: V) -> (usize, &'a mut V)
-    where
-        K: Ord,
-    {
-        let slice = crate::map::Slice::from_slice(&self.map.entries);
-        let i = slice.binary_search_keys(&self.key).unwrap_err();
-        (i, self.shift_insert(i, value))
-    }
-
-    /// Inserts the entry's key and the given value into the map at the given index,
-    /// shifting others to the right, and returns a mutable reference to the value.
-    ///
-    /// ***Panics*** if `index` is out of bounds.
-    ///
-    /// Computes in **O(n)** time (average).
-    pub fn shift_insert(self, index: usize, value: V) -> &'a mut V {
-        let Self { map, hash, key } = self;
-        map.shift_insert_unique(index, hash, key, value);
-        &mut map.entries[index].value
     }
 }
 
@@ -390,10 +314,6 @@ impl<'a, K, V> IndexedEntry<'a, K, V> {
     /// Gets a reference to the entry's key in the map.
     pub fn key(&self) -> &K {
         &self.map.entries[self.index].key
-    }
-
-    pub(crate) fn key_mut(&mut self) -> &mut K {
-        &mut self.map.entries[self.index].key
     }
 
     /// Gets a reference to the entry's value in the map.
@@ -463,34 +383,6 @@ impl<'a, K, V> IndexedEntry<'a, K, V> {
     pub fn shift_remove(self) -> V {
         self.shift_remove_entry().1
     }
-
-    /// Moves the position of the entry to a new index
-    /// by shifting all other entries in-between.
-    ///
-    /// This is equivalent to [`IndexMap::move_index`][`crate::IndexMap::move_index`]
-    /// coming `from` the current [`.index()`][Self::index].
-    ///
-    /// * If `self.index() < to`, the other pairs will shift down while the targeted pair moves up.
-    /// * If `self.index() > to`, the other pairs will shift up while the targeted pair moves down.
-    ///
-    /// ***Panics*** if `to` is out of bounds.
-    ///
-    /// Computes in **O(n)** time (average).
-    pub fn move_index(self, to: usize) {
-        self.map.move_index(self.index, to);
-    }
-
-    /// Swaps the position of entry with another.
-    ///
-    /// This is equivalent to [`IndexMap::swap_indices`][`crate::IndexMap::swap_indices`]
-    /// with the current [`.index()`][Self::index] as one of the two being swapped.
-    ///
-    /// ***Panics*** if the `other` index is out of bounds.
-    ///
-    /// Computes in **O(1)** time (average).
-    pub fn swap_indices(self, other: usize) {
-        self.map.swap_indices(self.index, other)
-    }
 }
 
 impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for IndexedEntry<'_, K, V> {
@@ -500,12 +392,5 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for IndexedEntry<'_, K, V> {
             .field("key", self.key())
             .field("value", self.get())
             .finish()
-    }
-}
-
-impl<'a, K, V> From<OccupiedEntry<'a, K, V>> for IndexedEntry<'a, K, V> {
-    fn from(entry: OccupiedEntry<'a, K, V>) -> Self {
-        let (map, index) = entry.raw.into_inner();
-        Self { map, index }
     }
 }

@@ -1,9 +1,18 @@
+#![allow(
+    // clippy is broken and shows wrong warnings
+    // clippy on stable does not know yet about the lint name
+    unknown_lints,
+    // https://github.com/rust-lang/rust-clippy/issues/8867
+    clippy::derive_partial_eq_without_eq,
+)]
+
 extern crate alloc;
 
 mod utils;
 
 use crate::utils::is_equal;
 use alloc::collections::BTreeMap;
+use core::iter::FromIterator;
 use expect_test::expect;
 use serde::{Deserialize, Serialize};
 use serde_with::with_prefix;

@@ -1,6 +1,5 @@
 use std::iter::Peekable;
 
-use num_conv::Truncate;
 use proc_macro::{token_stream, TokenTree};
 use time_core::util::{days_in_year, weeks_in_year};
 
@@ -94,7 +93,7 @@ pub(crate) fn parse(chars: &mut Peekable<token_stream::IntoIter>) -> Result<Date
                 span_end: Some(month_span),
             });
         }
-        let month = month.truncate();
+        let month = month as _;
         if day == 0 || day > days_in_year_month(year, month) {
             return Err(Error::InvalidComponent {
                 name: "day",

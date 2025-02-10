@@ -1,6 +1,6 @@
 use crate::utils::{check_matches_schema, check_valid_json_schema};
+use ::schemars_0_8::JsonSchema;
 use expect_test::expect_file;
-use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::json;
 use serde_with::*;
@@ -59,6 +59,9 @@ macro_rules! declare_snapshot_test {
 
 #[test]
 fn schemars_basic() {
+    use ::schemars_0_8::JsonSchema;
+    use serde::Serialize;
+
     #[serde_as]
     #[derive(JsonSchema, Serialize)]
     #[schemars(crate = "::schemars_0_8")]
@@ -117,82 +120,9 @@ fn schemars_custom_with() {
     }));
 }
 
-#[test]
-fn schemars_deserialize_only_bug_735() {
-    #[serde_as]
-    #[derive(JsonSchema, Serialize)]
-    #[schemars(crate = "::schemars_0_8")]
-    struct Basic {
-        /// Basic field, no attribute
-        bare_field: u32,
-
-        /// Will emit matching schemars attribute
-        #[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-        both: u32,
-
-        /// Can emit schemars with serialize_as, but it will be ignored
-        #[serde_as(serialize_as = "PickFirst<(_, DisplayFromStr)>")]
-        serialize_only: u32,
-
-        /// schemars doesn't support deserialize_as
-        #[serde_as(deserialize_as = "PickFirst<(_, DisplayFromStr)>")]
-        deserialize_only: u32,
-
-        /// Can emit schemars with serialize_as, but it will be ignored
-        /// schemars doesn't support deserialize_as
-        #[serde_as(
-            serialize_as = "PickFirst<(_, DisplayFromStr)>",
-            deserialize_as = "PickFirst<(_, DisplayFromStr)>"
-        )]
-        serialize_and_deserialize: u32,
-    }
-
-    let schema = schemars::schema_for!(Basic);
-    let mut schema = serde_json::to_string_pretty(&schema).expect("schema could not be serialized");
-    schema.push('\n');
-
-    let expected = expect_file!["./schemars_0_8/schemars_deserialize_only_bug_735.json"];
-    expected.assert_eq(&schema);
-}
-
-#[test]
-fn schemars_custom_schema_with() {
-    fn custom_int(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        use schemars::schema::*;
-
-        SchemaObject {
-            instance_type: Some(InstanceType::Integer.into()),
-            ..Default::default()
-        }
-        .into()
-    }
-
-    #[serde_as]
-    #[derive(JsonSchema, Serialize)]
-    struct Test {
-        #[serde_as(as = "DisplayFromStr")]
-        #[schemars(schema_with = "custom_int")]
-        custom: i32,
-
-        #[serde_as(as = "DisplayFromStr")]
-        #[cfg_attr(any(), schemars(schema_with = "custom_int"))]
-        with_disabled: i32,
-
-        #[serde_as(as = "DisplayFromStr")]
-        #[cfg_attr(all(), schemars(schema_with = "custom_int"))]
-        always_enabled: i32,
-    }
-
-    check_matches_schema::<Test>(&json!({
-        "custom": 3,
-        "with_disabled": "5",
-        "always_enabled": 7,
-    }));
-}
-
 mod test_std {
     use super::*;
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
     declare_snapshot_test! {
         option {
@@ -251,41 +181,7 @@ mod test_std {
 mod snapshots {
     use super::*;
     use serde_with::formats::*;
-
-    #[allow(dead_code)]
-    #[derive(JsonSchema, Serialize)]
-    enum Mappable {
-        A(i32),
-        B(String),
-        C { c: i32, b: Option<u64> },
-    }
-
-    #[derive(JsonSchema, Serialize)]
-    struct KvMapData {
-        #[serde(rename = "$key$")]
-        key: String,
-
-        a: u32,
-        b: String,
-        c: f32,
-        d: bool,
-    }
-
-    #[allow(dead_code, variant_size_differences)]
-    #[derive(JsonSchema, Serialize)]
-    #[serde(tag = "$key$")]
-    enum KvMapEnum {
-        TypeA { a: u32 },
-        TypeB { b: String },
-        TypeC { c: bool },
-    }
-
-    #[derive(JsonSchema, Serialize)]
-    struct KvMapFlatten {
-        #[serde(flatten)]
-        data: KvMapEnum,
-        extra: bool,
-    }
+    use std::collections::BTreeSet;
 
     declare_snapshot_test! {
         bytes {
@@ -362,57 +258,6 @@ mod snapshots {
                 time_i64: std::time::SystemTime,
             }
         }
-
-        enum_map {
-            struct Test {
-                #[serde_as(as = "EnumMap")]
-                data: Vec<Mappable>,
-            }
-        }
-
-        key_value_map {
-            struct Test {
-                #[serde_as(as = "KeyValueMap<_>")]
-                data: Vec<KvMapData>,
-            }
-        }
-
-        key_value_map_enum {
-            struct Test {
-                #[serde_as(as = "KeyValueMap<_>")]
-                data: Vec<KvMapEnum>,
-            }
-        }
-
-        key_value_map_flatten {
-            struct Test {
-                #[serde_as(as = "KeyValueMap<_>")]
-                data: Vec<KvMapFlatten>,
-            }
-        }
-
-        one_or_many_prefer_one {
-            #[serde(transparent)]
-            struct Test {
-                #[serde_as(as = "OneOrMany<_, PreferOne>")]
-                data: Vec<i32>,
-            }
-        }
-
-        pickfirst {
-            #[serde(transparent)]
-            struct Test {
-                #[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-                value: u32
-            }
-        }
-
-        one_or_many_nested {
-            struct Test {
-                #[serde_as(as = "Option<OneOrMany<_>>")]
-                optional_many: Option<Vec<String>>,
-            }
-        }
     }
 }
 
@@ -427,7 +272,6 @@ mod derive {
         field: u32,
     }
 
-    #[allow(dead_code)]
     #[serde_as]
     #[derive(Serialize)]
     #[cfg_attr(any(), derive(JsonSchema))]
@@ -496,7 +340,7 @@ mod array {
     fn test_oob_item() {
         check_matches_schema::<FixedArray>(&json!({
             "array": [-1, 0x1_0000_0000i64, 32]
-        }));
+        }))
     }
 }
 
@@ -562,7 +406,7 @@ mod bool_from_int {
     fn test_fractional_value_strict() {
         check_matches_schema::<BoolStrict>(&json!({
             "value": 0.5
-        }));
+        }))
     }
 
     #[test]
@@ -570,7 +414,7 @@ mod bool_from_int {
     fn test_fractional_value_flexible() {
         check_matches_schema::<BoolFlexible>(&json!({
             "value": 0.5
-        }));
+        }))
     }
 }
 
@@ -610,74 +454,6 @@ mod bytes_or_string {
     fn test_int_not_valid_json() {
         check_matches_schema::<Test>(&json!({
             "bytes": 5
-        }));
-    }
-}
-
-mod enum_map {
-    use super::*;
-
-    #[derive(Serialize, JsonSchema)]
-    struct InnerStruct {
-        c: String,
-        d: f64,
-    }
-
-    #[derive(Serialize, JsonSchema)]
-    enum Inner {
-        A(i32),
-        B(String),
-        C(InnerStruct),
-    }
-
-    #[serde_as]
-    #[derive(Serialize, JsonSchema)]
-    #[serde(transparent)]
-    struct Outer(#[serde_as(as = "EnumMap")] Vec<Inner>);
-
-    #[test]
-    fn test_serialized_is_valid() {
-        check_valid_json_schema(&Outer(vec![
-            Inner::A(5),
-            Inner::B("test".into()),
-            Inner::C(InnerStruct {
-                c: "c".into(),
-                d: -34.0,
-            }),
-        ]));
-    }
-
-    #[test]
-    fn test_matches_expected() {
-        check_matches_schema::<Outer>(&json!({
-            "A": 75,
-            "B": "BBBBBB",
-            "C": {
-                "c": "inner C",
-                "d": 777
-            }
-        }));
-    }
-
-    #[test]
-    fn test_no_fields_required() {
-        check_matches_schema::<Outer>(&json!({}));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_mixed_up_schemas() {
-        check_matches_schema::<Outer>(&json!({
-            "A": "b",
-            "B": 5
-        }));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_invalid_key() {
-        check_matches_schema::<Outer>(&json!({
-            "invalid": 4
         }));
     }
 }
@@ -816,19 +592,6 @@ fn test_map() {
 }
 
 #[test]
-fn test_if_is_human_readable() {
-    #[serde_as]
-    #[derive(Serialize, JsonSchema)]
-    struct Test {
-        #[serde_as(as = "IfIsHumanReadable<DisplayFromStr>")]
-        data: i32,
-    }
-
-    check_valid_json_schema(&Test { data: 5 });
-    check_matches_schema::<Test>(&json!({ "data": "5" }));
-}
-
-#[test]
 fn test_set_last_value_wins_with_duplicates() {
     #[serde_as]
     #[derive(Serialize, JsonSchema)]
@@ -855,154 +618,4 @@ fn test_set_prevent_duplicates_with_duplicates() {
     check_matches_schema::<Test>(&json!({
         "set": [ 1, 1 ]
     }));
-}
-
-mod key_value_map {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    #[serde_as]
-    #[derive(Clone, Debug, JsonSchema, Serialize)]
-    #[serde(transparent)]
-    struct KVMap<E>(
-        #[serde_as(as = "KeyValueMap<_>")]
-        #[serde(bound(serialize = "E: Serialize", deserialize = "E: Deserialize<'de>"))]
-        Vec<E>,
-    );
-
-    #[derive(Clone, Debug, JsonSchema, Serialize)]
-    #[serde(untagged)]
-    enum UntaggedEnum {
-        A {
-            #[serde(rename = "$key$")]
-            key: String,
-            field1: String,
-        },
-        B(String, i32),
-    }
-
-    #[test]
-    fn test_untagged_enum() {
-        let value = KVMap(vec![
-            UntaggedEnum::A {
-                key: "v1".into(),
-                field1: "field".into(),
-            },
-            UntaggedEnum::B("v2".into(), 7),
-        ]);
-
-        check_valid_json_schema(&value);
-    }
-
-    #[derive(Clone, Debug, JsonSchema, Serialize)]
-    #[serde(untagged)]
-    enum UntaggedNestedEnum {
-        Nested(UntaggedEnum),
-        C {
-            #[serde(rename = "$key$")]
-            key: String,
-            field2: i32,
-        },
-    }
-
-    #[test]
-    fn test_untagged_nested_enum() {
-        let value = KVMap(vec![
-            UntaggedNestedEnum::Nested(UntaggedEnum::A {
-                key: "v1".into(),
-                field1: "field".into(),
-            }),
-            UntaggedNestedEnum::Nested(UntaggedEnum::B("v2".into(), 7)),
-            UntaggedNestedEnum::C {
-                key: "v2".into(),
-                field2: 222,
-            },
-        ]);
-
-        check_valid_json_schema(&value);
-    }
-
-    #[test]
-    fn test_btreemap() {
-        let value = KVMap(vec![
-            BTreeMap::from_iter([("$key$", "a"), ("value", "b")]),
-            BTreeMap::from_iter([("$key$", "b"), ("value", "d")]),
-        ]);
-
-        check_valid_json_schema(&value);
-    }
-}
-
-mod one_or_many {
-    use super::*;
-    use serde_with::formats::{PreferMany, PreferOne};
-
-    #[serde_as]
-    #[derive(Clone, Debug, JsonSchema, Serialize)]
-    #[serde(transparent)]
-    struct WithPreferOne(#[serde_as(as = "OneOrMany<_, PreferOne>")] Vec<i32>);
-
-    #[serde_as]
-    #[derive(Clone, Debug, JsonSchema, Serialize)]
-    #[serde(transparent)]
-    struct WithPreferMany(#[serde_as(as = "OneOrMany<_, PreferMany>")] Vec<i32>);
-
-    #[test]
-    fn test_prefer_one() {
-        let single = WithPreferOne(vec![7]);
-        let multiple = WithPreferOne(vec![1, 2, 3]);
-
-        check_valid_json_schema(&single);
-        check_valid_json_schema(&multiple);
-    }
-
-    #[test]
-    fn test_prefer_one_matches() {
-        check_matches_schema::<WithPreferOne>(&json!(7));
-        check_matches_schema::<WithPreferOne>(&json!([1, 2, 3]));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_prefer_one_no_invalid_type_one() {
-        check_matches_schema::<WithPreferOne>(&json!("test"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_prefer_one_no_invalid_type_many() {
-        check_matches_schema::<WithPreferOne>(&json!(["test", 1]));
-    }
-
-    #[test]
-    fn test_prefer_many() {
-        let single = WithPreferMany(vec![7]);
-        let multiple = WithPreferMany(vec![1, 2, 3]);
-
-        check_valid_json_schema(&single);
-        check_valid_json_schema(&multiple);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_prefer_many_no_invalid_type_one() {
-        check_matches_schema::<WithPreferMany>(&json!("test"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_prefer_many_no_invalid_type_many() {
-        check_matches_schema::<WithPreferMany>(&json!(["test", 1]));
-    }
-}
-
-#[test]
-fn test_pickfirst() {
-    #[serde_as]
-    #[derive(JsonSchema, Serialize)]
-    #[serde(transparent)]
-    struct IntOrDisplay(#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")] u32);
-
-    check_matches_schema::<IntOrDisplay>(&json!(7));
-    check_matches_schema::<IntOrDisplay>(&json!("17"));
 }

@@ -225,7 +225,7 @@ where
     {
         source
             .sign
-            .apply(source.duration.as_secs_f64())
+            .apply(utils::duration_as_secs_f64(&source.duration))
             .serialize(serializer)
     }
 }
@@ -241,7 +241,7 @@ where
     {
         source
             .sign
-            .apply(source.duration.as_secs_f64())
+            .apply(utils::duration_as_secs_f64(&source.duration))
             .to_string()
             .serialize(serializer)
     }
@@ -390,7 +390,7 @@ impl<'de> DeserializeAs<'de, DurationSigned> for DurationSeconds<String, Strict>
             type Value = DurationSigned;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a string containing a number")
+                write!(formatter, "a string containing a number")
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>

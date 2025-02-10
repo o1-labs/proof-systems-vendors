@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.67.0"
 name = "time-macros"
-version = "0.2.18"
+version = "0.2.16"
 authors = [
     "Jacob Pratt <open-source@jhpratt.dev>",
     "Time contributors",
@@ -37,9 +37,6 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [lib]
 proc-macro = true
-
-[dependencies.num-conv]
-version = "0.1.0"
 
 [dependencies.time-core]
 version = "=0.1.2"
@@ -124,6 +121,7 @@ unused = "warn"
 unused-import-braces = "warn"
 unused-lifetimes = "warn"
 unused-qualifications = "warn"
+unused-tuple-struct-fields = "warn"
 variant-size-differences = "warn"
 
 [lints.rust.unstable-name-collisions]

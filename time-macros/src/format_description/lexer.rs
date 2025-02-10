@@ -3,7 +3,7 @@ use core::iter;
 use super::{Error, Location, Spanned, SpannedValue};
 
 pub(super) struct Lexed<I: Iterator> {
-    iter: iter::Peekable<I>,
+    iter: core::iter::Peekable<I>,
 }
 
 impl<I: Iterator> Iterator for Lexed<I> {

@@ -1,7 +1,5 @@
 //! The [`Date`] struct and its associated `impl`s.
 
-#[cfg(feature = "formatting")]
-use alloc::string::String;
 use core::num::NonZeroI32;
 use core::ops::{Add, Sub};
 use core::time::Duration as StdDuration;
@@ -10,7 +8,6 @@ use core::{cmp, fmt};
 use std::io;
 
 use deranged::RangedI32;
-use num_conv::prelude::*;
 use powerfmt::ext::FormatterExt;
 use powerfmt::smart_display::{self, FormatterOptions, Metadata, SmartDisplay};
 
@@ -122,7 +119,7 @@ impl Date {
             1..=28 => {}
             29..=31 if day <= days_in_year_month(year, month) => {}
             _ => {
-                return Err(error::ComponentRange {
+                return Err(crate::error::ComponentRange {
                     name: "day",
                     minimum: 1,
                     maximum: days_in_year_month(year, month) as _,
@@ -160,7 +157,7 @@ impl Date {
             1..=365 => {}
             366 if is_leap_year(year) => {}
             _ => {
-                return Err(error::ComponentRange {
+                return Err(crate::error::ComponentRange {
                     name: "ordinal",
                     minimum: 1,
                     maximum: days_in_year(year) as _,
@@ -197,7 +194,7 @@ impl Date {
             1..=52 => {}
             53 if week <= weeks_in_year(year) => {}
             _ => {
-                return Err(error::ComponentRange {
+                return Err(crate::error::ComponentRange {
                     name: "week",
                     minimum: 1,
                     maximum: weeks_in_year(year) as _,
@@ -1134,7 +1131,7 @@ impl Date {
             1..=28 => {}
             29..=31 if day <= days_in_year_month(self.year(), self.month()) => {}
             _ => {
-                return Err(error::ComponentRange {
+                return Err(crate::error::ComponentRange {
                     name: "day",
                     minimum: 1,
                     maximum: days_in_year_month(self.year(), self.month()) as _,
@@ -1151,34 +1148,6 @@ impl Date {
                 (self.ordinal() as i16 - self.day() as i16 + day as i16) as _,
             )
         })
-    }
-
-    /// Replace the day of the year.
-    ///
-    /// ```rust
-    /// # use time_macros::date;
-    /// assert_eq!(date!(2022 - 049).replace_ordinal(1), Ok(date!(2022 - 001)));
-    /// assert!(date!(2022 - 049).replace_ordinal(0).is_err()); // 0 isn't a valid ordinal
-    /// assert!(date!(2022 - 049).replace_ordinal(366).is_err()); // 2022 isn't a leap year
-    /// ````
-    #[must_use = "This method does not mutate the original `Date`."]
-    pub const fn replace_ordinal(self, ordinal: u16) -> Result<Self, error::ComponentRange> {
-        match ordinal {
-            1..=365 => {}
-            366 if is_leap_year(self.year()) => {}
-            _ => {
-                return Err(error::ComponentRange {
-                    name: "ordinal",
-                    minimum: 1,
-                    maximum: days_in_year(self.year()) as _,
-                    value: ordinal as _,
-                    conditional_range: true,
-                });
-            }
-        }
-
-        // Safety: `ordinal` is in range.
-        Ok(unsafe { Self::__from_ordinal_date_unchecked(self.year(), ordinal) })
     }
     // endregion replacement
 }
@@ -1368,10 +1337,10 @@ impl SmartDisplay for Date {
             false
         };
 
-        let formatted_width = year_width.extend::<usize>()
+        let formatted_width = year_width as usize
             + smart_display::padded_width_of!(
                 "-",
-                u8::from(month) => width(2),
+                month as u8 => width(2),
                 "-",
                 day => width(2),
             );
@@ -1383,7 +1352,7 @@ impl SmartDisplay for Date {
                 year_width,
                 display_sign,
                 year,
-                month: u8::from(month),
+                month: month as u8,
                 day,
             },
         )
@@ -1401,7 +1370,7 @@ impl SmartDisplay for Date {
             month,
             day,
         } = *metadata;
-        let year_width = year_width.extend();
+        let year_width = year_width as usize;
 
         if display_sign {
             f.pad_with_width(
@@ -1487,7 +1456,7 @@ impl Sub for Date {
     type Output = Duration;
 
     fn sub(self, other: Self) -> Self::Output {
-        Duration::days((self.to_julian_day() - other.to_julian_day()).extend())
+        Duration::days((self.to_julian_day() - other.to_julian_day()) as _)
     }
 }
 // endregion trait impls

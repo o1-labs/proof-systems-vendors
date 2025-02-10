@@ -25,10 +25,10 @@ fn unix_epoch_local() -> DateTime<Local> {
 
 /// Create a [`NaiveDateTime`] for the Unix Epoch
 fn unix_epoch_naive() -> NaiveDateTime {
-    DateTime::from_timestamp(0, 0).unwrap().naive_utc()
+    NaiveDateTime::from_timestamp_opt(0, 0).unwrap()
 }
 
-/// Deserialize a Unix timestamp with optional sub-second precision into a `DateTime<Utc>`.
+/// Deserialize a Unix timestamp with optional subsecond precision into a `DateTime<Utc>`.
 ///
 /// The `DateTime<Utc>` can be serialized from an integer, a float, or a string representing a number.
 ///
@@ -46,8 +46,6 @@ fn unix_epoch_naive() -> NaiveDateTime {
 ///
 /// // Deserializes integers
 /// assert!(serde_json::from_str::<S>(r#"{ "date": 1478563200 }"#).is_ok());
-/// # // Ensure the date field is not dead code
-/// # assert_eq!(serde_json::from_str::<S>(r#"{ "date": 1478563200 }"#).unwrap().date.timestamp(), 1478563200);
 /// // floats
 /// assert!(serde_json::from_str::<S>(r#"{ "date": 1478563200.123 }"#).is_ok());
 /// // and strings with numbers, for high-precision values
@@ -76,22 +74,28 @@ pub mod datetime_utc_ts_seconds_from_any {
             where
                 E: DeError,
             {
-                DateTime::from_timestamp(value, 0).ok_or_else(|| {
-                    DeError::custom(format_args!(
+                let ndt = NaiveDateTime::from_timestamp_opt(value, 0);
+                if let Some(ndt) = ndt {
+                    Ok(Utc.from_utc_datetime(&ndt))
+                } else {
+                    Err(DeError::custom(format_args!(
                         "a timestamp which can be represented in a DateTime but received '{value}'"
-                    ))
-                })
+                    )))
+                }
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: DeError,
             {
-                DateTime::from_timestamp(value as i64, 0).ok_or_else(|| {
-                    DeError::custom(format_args!(
+                let ndt = NaiveDateTime::from_timestamp_opt(value as i64, 0);
+                if let Some(ndt) = ndt {
+                    Ok(Utc.from_utc_datetime(&ndt))
+                } else {
+                    Err(DeError::custom(format_args!(
                         "a timestamp which can be represented in a DateTime but received '{value}'"
-                    ))
-                })
+                    )))
+                }
             }
 
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
@@ -100,11 +104,14 @@ pub mod datetime_utc_ts_seconds_from_any {
             {
                 let seconds = value.trunc() as i64;
                 let nsecs = (value.fract() * 1_000_000_000_f64).abs() as u32;
-                DateTime::from_timestamp(seconds, nsecs).ok_or_else(|| {
-                    DeError::custom(format_args!(
+                let ndt = NaiveDateTime::from_timestamp_opt(seconds, nsecs);
+                if let Some(ndt) = ndt {
+                    Ok(Utc.from_utc_datetime(&ndt))
+                } else {
+                    Err(DeError::custom(format_args!(
                         "a timestamp which can be represented in a DateTime but received '{value}'"
-                    ))
-                })
+                    )))
+                }
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -116,11 +123,14 @@ pub mod datetime_utc_ts_seconds_from_any {
                 match *parts.as_slice() {
                     [seconds] => {
                         if let Ok(seconds) = seconds.parse() {
-                            DateTime::from_timestamp(seconds, 0).ok_or_else(|| {
-                                DeError::custom(format_args!(
+                            let ndt = NaiveDateTime::from_timestamp_opt(seconds, 0);
+                            if let Some(ndt) = ndt {
+                                Ok(Utc.from_utc_datetime(&ndt))
+                            } else {
+                                Err(DeError::custom(format_args!(
                                     "a timestamp which can be represented in a DateTime but received '{value}'"
-                                ))
-                            })
+                                )))
+                            }
                         } else {
                             Err(DeError::invalid_value(Unexpected::Str(value), &self))
                         }
@@ -137,11 +147,14 @@ pub mod datetime_utc_ts_seconds_from_any {
                             if let Ok(mut subseconds) = subseconds.parse() {
                                 // convert subseconds to nanoseconds (10^-9), require 9 places for nanoseconds
                                 subseconds *= 10u32.pow(9 - subseclen);
-                                DateTime::from_timestamp(seconds, subseconds).ok_or_else(|| {
-                                    DeError::custom(format_args!(
+                                let ndt = NaiveDateTime::from_timestamp_opt(seconds, subseconds);
+                                if let Some(ndt) = ndt {
+                                    Ok(Utc.from_utc_datetime(&ndt))
+                                } else {
+                                    Err(DeError::custom(format_args!(
                                         "a timestamp which can be represented in a DateTime but received '{value}'"
-                                    ))
-                                })
+                                    )))
+                                }
                             } else {
                                 Err(DeError::invalid_value(Unexpected::Str(value), &self))
                             }

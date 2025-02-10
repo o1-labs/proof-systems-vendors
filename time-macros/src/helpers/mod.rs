@@ -4,7 +4,6 @@ mod string;
 use std::iter::Peekable;
 use std::str::FromStr;
 
-use num_conv::prelude::*;
 use proc_macro::{token_stream, Span, TokenTree};
 use time_core::util::{days_in_year, is_leap_year};
 
@@ -93,17 +92,15 @@ fn jan_weekday(year: i32, ordinal: i32) -> u8 {
     }
 
     let adj_year = year - 1;
-    (ordinal + adj_year + div_floor!(adj_year, 4) - div_floor!(adj_year, 100)
+    ((ordinal + adj_year + div_floor!(adj_year, 4) - div_floor!(adj_year, 100)
         + div_floor!(adj_year, 400)
         + 6)
-    .rem_euclid(7)
-    .cast_unsigned()
-    .truncate()
+    .rem_euclid(7)) as _
 }
 
 pub(crate) fn days_in_year_month(year: i32, month: u8) -> u8 {
-    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month.extend::<usize>() - 1]
-        + u8::from(month == 2 && is_leap_year(year))
+    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month as usize - 1]
+        + (month == 2 && is_leap_year(year)) as u8
 }
 
 pub(crate) fn ywd_to_yo(year: i32, week: u8, iso_weekday_number: u8) -> (i32, u16) {
@@ -123,9 +120,8 @@ pub(crate) fn ywd_to_yo(year: i32, week: u8, iso_weekday_number: u8) -> (i32, u1
 }
 
 pub(crate) fn ymd_to_yo(year: i32, month: u8, day: u8) -> (i32, u16) {
-    let ordinal = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-        [month.extend::<usize>() - 1]
-        + u16::from(month > 2 && is_leap_year(year));
+    let ordinal = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334][month as usize - 1]
+        + (month > 2 && is_leap_year(year)) as u16;
 
     (year, ordinal + u16::from(day))
 }

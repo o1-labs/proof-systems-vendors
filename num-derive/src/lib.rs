@@ -97,18 +97,26 @@ macro_rules! parse {
 // we're deriving for a newtype, where the inner type is defined in the same module, but not
 // exported.
 //
-// Solution: use the anonymous const trick.  For some reason, `extern crate` statements are allowed
+// Solution: use the dummy const trick.  For some reason, `extern crate` statements are allowed
 // here, but everything from the surrounding module is in scope.  This trick is taken from serde.
-fn anon_const_trick(exp: TokenStream2) -> TokenStream2 {
+fn dummy_const_trick(trait_: &str, name: &Ident, exp: TokenStream2) -> TokenStream2 {
+    let dummy_const = Ident::new(
+        &format!("_IMPL_NUM_{}_FOR_{}", trait_, unraw(name)),
+        Span::call_site(),
+    );
     quote! {
         #[allow(non_upper_case_globals, unused_qualifications)]
-        const _: () = {
+        const #dummy_const: () = {
             #[allow(clippy::useless_attribute)]
             #[allow(rust_2018_idioms)]
             extern crate num_traits as _num_traits;
             #exp
         };
     }
+}
+
+fn unraw(ident: &Ident) -> String {
+    ident.to_string().trim_start_matches("r#").to_owned()
 }
 
 // If `data` is a newtype, return the type it's wrapping.
@@ -181,11 +189,11 @@ impl NumTraits {
         }
     }
 
-    fn wrap(&self, output: TokenStream2) -> TokenStream2 {
+    fn wrap(&self, trait_: &str, name: &Ident, output: TokenStream2) -> TokenStream2 {
         if self.explicit {
             output
         } else {
-            anon_const_trick(output)
+            dummy_const_trick(trait_, name, output)
         }
     }
 }
@@ -361,7 +369,7 @@ pub fn from_primitive(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("FromPrimitive", name, impl_).into()
 }
 
 /// Derives [`num_traits::ToPrimitive`][to] for simple enums and newtypes.
@@ -536,7 +544,7 @@ pub fn to_primitive(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("ToPrimitive", name, impl_).into()
 }
 
 const NEWTYPE_ONLY: &str = "This trait can only be derived for newtypes";
@@ -615,7 +623,7 @@ pub fn num_cast(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("NumCast", name, impl_).into()
 }
 
 /// Derives [`num_traits::Zero`][zero] for newtypes.  The inner type must already implement `Zero`.
@@ -642,7 +650,7 @@ pub fn zero(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("Zero", name, impl_).into()
 }
 
 /// Derives [`num_traits::One`][one] for newtypes.  The inner type must already implement `One`.
@@ -669,7 +677,7 @@ pub fn one(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("One", name, impl_).into()
 }
 
 /// Derives [`num_traits::Num`][num] for newtypes.  The inner type must already implement `Num`.
@@ -693,7 +701,7 @@ pub fn num(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("Num", name, impl_).into()
 }
 
 /// Derives [`num_traits::Float`][float] for newtypes.  The inner type must already implement
@@ -942,7 +950,7 @@ pub fn float(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("Float", name, impl_).into()
 }
 
 /// Derives [`num_traits::Signed`][signed] for newtypes.  The inner type must already implement
@@ -982,7 +990,7 @@ pub fn signed(input: TokenStream) -> TokenStream {
         }
     };
 
-    import.wrap(impl_).into()
+    import.wrap("Signed", &name, impl_).into()
 }
 
 /// Derives [`num_traits::Unsigned`][unsigned].  The inner type must already implement
@@ -1000,5 +1008,5 @@ pub fn unsigned(input: TokenStream) -> TokenStream {
         impl #import::Unsigned for #name {}
     };
 
-    import.wrap(impl_).into()
+    import.wrap("Unsigned", &name, impl_).into()
 }
